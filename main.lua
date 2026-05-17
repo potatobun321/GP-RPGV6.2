@@ -1,19 +1,19 @@
 -- main.lua
-local Context   = require("core.context")
+local Context   = require('engine.core.context')
 local SceneGame = require("scenes.game")
 
-local Factory = require("core.factory")
+local Factory = require('engine.core.factory')
 
 function love.load()
     love.graphics.setDefaultFilter("nearest", "nearest")
-    local success, f = pcall(love.graphics.newFont, "PressStart2P.ttf", 12)
+    local success, f = pcall(love.graphics.newFont, "fonts/PressStart2P.ttf", 12)
     if success then love.graphics.setFont(f) end
 
-    _G.Event = require("core.event")  -- kept global: event bus used across all modules
+    _G.Event = require('engine.core.event')  -- kept global: event bus used across all modules
 
     Factory.load()
 
-    local AnimationManager = require("core.animation")
+    local AnimationManager = require('engine.core.animation')
     AnimationManager.verifyAll(Factory)
 
     Context.scene = SceneGame
@@ -68,4 +68,4 @@ end
 function love.filedropped(file)
     local s = Context.scene
     if s and s.filedropped then s:filedropped(file) end
-end
+end

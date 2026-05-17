@@ -1,14 +1,14 @@
 -- scenes/game.lua
-local Context    = require("core.context")
-local Tilemap    = require("world.tilemap")
-local Camera     = require("core.camera")
-local Console    = require("core.console")
-local Registry   = require("ecs.registry")
-local Factory    = require("core.factory")
-local Systems    = require("ecs.systems")
-local Theme      = require("core.theme")
-local Components = require("ecs.components")
-local Editor     = require("core.editor")
+local Context    = require('engine.core.context')
+local Tilemap    = require('engine.world.tilemap')
+local Camera     = require('engine.core.camera')
+local Console    = require('engine.core.console')
+local Registry   = require('engine.ecs.registry')
+local Factory    = require('engine.core.factory')
+local Systems    = require('engine.ecs.systems')
+local Theme      = require('engine.core.theme')
+local Components = require('engine.ecs.components')
+local Editor     = require('tools.editor.editor')
 
 local Game = {}
 
