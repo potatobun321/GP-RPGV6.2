@@ -1,0 +1,48 @@
+GP-PRGV5: HOW TO USE THE DEVELOPER CONSOLE
+==========================================
+
+The Developer Console is your master control panel for the engine. It runs pure Lua code within the game environment, allowing you to manipulate the engine in real-time.
+
+OPENING THE CONSOLE:
+--------------------
+Press the Tilde key (`~` or `` ` ``) at any time.
+You can also press `F1`.
+
+AVAILABLE BUILT-IN COMMANDS:
+----------------------------
+You can type these exactly as written:
+
+* `edit`
+  Toggles the Level Editor on or off.
+
+* `save`
+  Instantly saves the map you are currently standing on. (You can also type `save.map3` to forcefully save it under a different name).
+
+* `load.mapName`
+  Instantly loads the specified map. Example: `load.map2`.
+
+* `theme.name`
+  Changes the entire visual aesthetic of the game instantly!
+  Options include: `theme.dark`, `theme.light`, `theme.neon`, `theme.dracula`.
+
+* `resize.number`
+  Dynamically scales the entire world and everything in it in real-time!
+  Example: `resize.64` will double the size of all tiles and update physics bounds instantly.
+
+* `clear`
+  Wipes all text history from the console to give you a clean screen.
+
+* `help`
+  Prints a list of all these commands.
+
+ADVANCED USAGE:
+---------------
+Because the console executes raw Lua code, you can use it to hack the game while playing!
+
+Examples:
+- Want to speed up your character?
+  Type: `_G.game.world.tileSize = 64` (Changes scale dynamically!)
+- Want to print internal engine variables?
+  Type: `print(_G.game.currentMapName)`
+
+The console is an incredibly powerful debugging tool. If you ever create a new global function in your engine, you can immediately test it by typing it into the console!

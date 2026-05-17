@@ -1,0 +1,38 @@
+GP-PRGV5: HOW TO USE THE LEVEL EDITOR
+=====================================
+
+The Level Editor is a powerful in-game tool built directly into the engine, allowing you to design maps visually while the game is running.
+
+HOW TO OPEN THE EDITOR:
+-----------------------
+1. While in-game, press the Tilde key (`~` or `` ` ``) to open the Developer Console.
+2. Type `edit()` and press Enter.
+3. The Editor Panel will slide in from the left side of your screen.
+4. (Optional) Press `~` again to close the console so you can see the entire screen clearly.
+
+EDITOR CONTROLS:
+----------------
+- LEFT CLICK: Places the currently selected tile onto the grid.
+- RIGHT CLICK: Erases a tile (turns it into 'void' / empty space).
+- MOUSE WHEEL: Scroll up or down on the left-side panel to view all available tiles.
+- CLICK A TILE NAME: Selects that tile type for painting.
+
+CAMERA MOVEMENT (FREE-CAM):
+---------------------------
+When the Editor is active, your camera automatically detaches from the player.
+- Use W, A, S, D to fly the camera around the map freely.
+- Hold SHIFT + Z to toggle Free-Cam on or off manually.
+
+SAVING YOUR MAP:
+----------------
+Your map will AUTOMATICALLY save when you close the game window. 
+However, if you want to force a save while editing:
+1. Open the console (`~`).
+2. Type `save()` and press Enter.
+3. The console will print green text confirming the map has been saved to the `world/maps/` folder.
+
+LOADING A DIFFERENT MAP TO EDIT:
+--------------------------------
+1. Open the console (`~`).
+2. Type `load('map2')` (or any other map name) and press Enter.
+3. The game will instantly save your current map and warp you to the new one, allowing you to edit multiple maps in one sitting!

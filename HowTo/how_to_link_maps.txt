@@ -1,0 +1,44 @@
+GP-PRGV5: HOW TO LINK MAPS TOGETHER
+===================================
+
+The engine features a robust, RPG-style "Link ID" system for transitioning between different maps. This allows you to create completely independent, bi-directional doors between maps without them ever conflicting.
+
+STEP 1: PLACING A DOOR (SCENE TILE)
+-----------------------------------
+1. Open the Level Editor (`edit()` in the console).
+2. Select the `Scene` tile from the left panel.
+3. Click anywhere on the map to place the door.
+4. A dark popup window will instantly appear in the center of your screen.
+
+STEP 2: THE LINKING MENU
+------------------------
+When the popup appears, you must configure where this door leads:
+1. Target Map: Click on the name of the map you want to warp to (e.g., `map2`).
+2. Link ID: Click on a unique identifier for this specific connection (e.g., `Link A`).
+
+STEP 3: COMPLETING THE CONNECTION
+---------------------------------
+For a door to actually work, the *destination map* must have a corresponding door pointing back!
+
+Example of a flawless connection:
+- You are on `map1`. You place a door. Target: `map2`. Link ID: `A`.
+- You open the console and type `load('map2')` to travel to the second map.
+- You place a door on `map2`. Target: `map1`. Link ID: `A`.
+
+Now, if you step on the door in `map1`, the engine scans `map2` looking for "Link A". It finds it, and teleports you exactly on top of it.
+
+WHY LINK IDs ARE POWERFUL:
+--------------------------
+Because of Link IDs, you can have multiple doors connecting the exact same maps!
+- Door 1: `map1` -> `map2` (Link A)
+- Door 2: `map1` -> `map2` (Link B)
+- Door 3: `map1` -> `map2` (Link C)
+
+They will perfectly connect to their respective Link A, B, and C doors on `map2` without ever getting confused or causing infinite loops.
+
+TROUBLESHOOTING:
+----------------
+If you step on a door and it doesn't work, open the Console (`~`). 
+You will see red text saying something like:
+`Error: No return tile with Link 'A' found in map2!`
+This means you forgot to go to `map2` and build the return door!

@@ -1,0 +1,78 @@
+GP-RPGV6: MASTER ARCHITECTURE GUIDE
+===================================
+
+This document is the ultimate guide to the entire engine folder structure. It explains every core file, what its purpose is, and how data flows from the moment you run the game.
+
+ROOT DIRECTORY
+--------------
+main.lua
+  - The entry point for Love2D. It initializes the window, loads the event bus, and kicks off the main Game scene. It passes global events (like keypresses) to the active scene.
+
+conf.lua
+  - Configuration file for Love2D. Defines window size, title, and disables blurred scaling (nearest-neighbor filtering) to keep pixel art crisp.
+
+/core/ (THE ENGINE BACKBONE)
+----------------------------
+This folder contains the utility scripts that manage the "rules" of the game environment.
+
+camera.lua
+  - Manages the viewport. Follows the player by default, but has a "Free-Cam" mode for the editor. It clamps the view so you never see past the edges of the map.
+
+console.lua
+  - The Developer Console (~). It reads input, intercepts special commands (like `edit`, `charc`, `resize.64`), and executes raw Lua strings to manipulate the game state in real-time.
+
+editor.lua
+  - The in-game map builder. Handles mouse clicks, tile placement, and the interactive popup UI for linking doors.
+
+event.lua
+  - A global event bus. Systems use this to talk to each other without being directly linked. For example, triggering "change_map" here tells game.lua to save and load new data.
+
+factory.lua
+  - The "Asset Loader and Spawner". It scans your tile folders, merges their properties with default flags, and creates Entity IDs for them. If you need to spawn a player or a new tile, you ask the Factory.
+
+input.lua
+  - A simple wrapper for mapping keyboard inputs to movement axes (W, A, S, D).
+
+theme.lua
+  - Contains color palettes (Dark, Neon, Dracula) used for text, UI, and as fallbacks if images fail to load or if playing in minimalist mode.
+
+transition.lua
+  - The "Door Logic". When a player steps on a Scene tile, this script scans the destination map's raw file for a matching "Link ID". If it finds one, it safely teleports the player.
+
+/ecs/ (ENTITY COMPONENT SYSTEM)
+-------------------------------
+This is the logic architecture of the game.
+
+registry.lua
+  - The database. It assigns IDs to entities and stores their components. It has a high-speed `query()` function so Systems can quickly find entities with specific traits.
+
+components.lua
+  - Pure data. Defines what a `Transform` (x, y) or `Health` (hp) looks like. No logic exists here.
+
+systems.lua
+  - The brains. 
+    * MovementSystem: Reads Velocity, checks Tilemap collisions, and moves entities.
+    * TileEffectSystem: Checks what tile the player is standing on and applies damage or speed changes.
+    * RenderSystem: Draws all tiles and characters to the screen.
+
+/scenes/ (GAME STATES)
+----------------------
+game.lua
+  - The primary gameplay loop. It creates the Tilemap, spawns the player, routes input to the ECS systems, and handles the rendering and camera attachment.
+
+/world/ (MAPS AND CONTENT)
+--------------------------
+tilemap.lua
+  - The grid manager. Handles saving and loading maps using "Sparse Tabling" (saving only tiles that exist to save space). Provides collision checks like `isSolidPixel`.
+
+/world/tiles/
+  - Your actual game content. Every `.lua` file here (like `wood.lua` or `lava.lua`) defines a tile's visual texture and specific physics properties.
+  - flagTable.lua: The master list of default properties (like solid=false, speedMod=1.0). All tiles inherit from this automatically.
+
+/world/maps/
+  - Auto-generated save files created by tilemap.lua. They store your level designs as pure Lua arrays.
+
+/assets/
+--------
+/tiles/ & /characters/
+  - Folders where your raw `.png` image files are loaded from.

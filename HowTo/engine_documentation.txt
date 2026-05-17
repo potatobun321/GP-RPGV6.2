@@ -1,0 +1,71 @@
+GP-PRGV4 ENGINE DOCUMENTATION
+============================
+Version: 4.0 (Persistence & Editor Update)
+Platform: Love2D / Lua
+Architecture: Entity Component System (ECS)
+
+1. CORE ARCHITECTURE (ECS)
+--------------------------
+The engine is built on a custom ECS framework located in `/ecs/`.
+- Registry: Manages entity lifecycle and component storage. Uses query caching for high-performance updates.
+- Components: Pure data structures (Transform, Velocity, Renderable, Health, TileData).
+- Systems: Logic layers (MovementSystem, RenderSystem, TileEffectSystem) that process entities matching specific component signatures.
+
+2. WORLD & TILE SYSTEM
+----------------------
+The world is entirely data-driven and modular.
+- Folder: `/world/tiles/`
+- Every file (e.g., grass.lua, wall.lua) defines a tile's appearance and behavior.
+- Flag System: Tiles use a centralized `flagTable.lua` to define properties like 'walkable', 'isLiquid', or 'isSceneTransition'. Individual tiles can override these flags.
+- Factory: Dynamically loads all tiles on startup, allowing for "plug-and-play" asset addition.
+
+3. MAP PERSISTENCE (SPARSE TABLING)
+-----------------------------------
+Maps are saved as serializable Lua tables in `/world/maps/`.
+- Format: Uses a sparse array of objects {x, y, id, flags}.
+- Storage: Only saves occupied tiles, keeping file sizes small.
+- Auto-Save: The engine automatically serializes the current map on game exit or map transition.
+- Serialization: Features a recursive table serializer that handles nested flags and metadata.
+
+4. INTEGRATED LEVEL EDITOR
+--------------------------
+Accessed via the in-game console command `edit()`.
+- UI: A slide-in panel showing all available assets loaded from the Factory.
+- Controls:
+    * Left-Click: Place selected tile.
+    * Right-Click: Erase/Void tile.
+    * WASD: Move camera (Free-cam mode).
+    * Mouse Wheel: Zoom in/out.
+- Scene Linker: Placing a "Scene" tile triggers a 2-step interactive popup:
+    1. Select Target Map (map1, map2, etc.)
+    2. Select Link ID (A, B, C, D, E)
+
+5. ADVANCED SCENE TRANSITIONS
+-----------------------------
+A robust bidirectional teleportation system managed by `core/transition.lua`.
+- Link ID System: Allows multiple independent doors between the same maps without conflicts.
+- Validation: Before teleporting, the engine scans the destination map file to ensure a matching Link ID exists. It prevents "one-way traps" or void-spawning.
+- Bounce Protection: Uses `lastTeleportTile` tracking to prevent the player from infinitely teleporting back and forth when spawning on a return tile.
+
+6. CONSOLE & DEBUGGING
+----------------------
+Toggle with the `~` (tilde) key.
+- Commands:
+    * `edit()`: Toggles Level Editor mode.
+    * `save('name')`: Force-save the current map.
+    * `load('name')`: Load a specific map.
+    * `clear()`: Wipes the console history.
+    * `help()`: Lists all available engine commands.
+- Logging: Supports colored text output for errors, warnings, and system info.
+
+7. CAMERA & RENDERING
+---------------------
+- Modes: Supports "Follow Player" mode and "Free-Cam" editor mode.
+- Clamping: Restricts view to the map boundaries (width/height).
+- Smoothing: Integrated Lerp logic for camera movement.
+- Draw Styles: Supports both textured sprites and color-keyed geometric primitives.
+
+8. EVENT SYSTEM
+---------------
+A global event bus (`core/event.lua`) allows decoupled communication between systems.
+- Example: `Event.fire("change_map", ...)` triggers map saving, cleaning the ECS registry, and loading new data without hardcoding dependencies.

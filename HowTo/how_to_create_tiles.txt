@@ -1,0 +1,74 @@
+GP-PRGV5: HOW TO CREATE NEW TILES & INHERIT PROPERTIES
+=====================================================
+
+Creating new tiles in this engine is incredibly simple because of the modular, data-driven "Factory" architecture and the global flag inheritance system. You do not need to edit any core engine code to add a new tile!
+
+STEP 1: ADD YOUR ASSET
+----------------------
+Place your image file (e.g., `myTile.png`) into the `assets/tiles/` folder.
+* Note: The engine uses nearest-neighbor filtering, so pixel art will remain sharp.
+
+STEP 2: CREATE THE TILE SCRIPT
+------------------------------
+Create a new `.lua` file in the `world/tiles/` directory. The name of the file doesn't matter for the engine (it loads them all dynamically), but it's best practice to name it after your tile (e.g., `myTile.lua`).
+
+Here is a basic template:
+
+```lua
+return {
+    id = "myTile",              -- The unique ID used in the editor
+    name = "My Custom Tile",    -- The display name
+    colorKey = "grass",         -- A fallback color from core/theme.lua if the image fails to load
+    draw_style = "fill",        -- "fill" or "line" (fallback rendering)
+    texturePath = "assets/tiles/myTile.png", -- Path to your asset
+    flags = {
+        -- Overridden properties go here!
+    }
+}
+```
+
+STEP 3: UNDERSTANDING PROPERTY INHERITANCE
+------------------------------------------
+Inside `world/tiles/flagTable.lua`, there is a master list of defaults. 
+Currently, the defaults for EVERY tile are:
+- `solid = false` (You can walk through it)
+- `speedMod = 1.0` (Normal walking speed)
+- `healthAffect = 0` (No damage or healing)
+- `interactable = false` 
+- `interactMessage = false` (Pressing 'E' does nothing)
+- `destructible = false`
+
+You ONLY need to declare a flag in your custom tile if you want it to behave DIFFERENTLY than the defaults above.
+
+EXAMPLES OF CUSTOM PROPERTIES:
+------------------------------
+
+1. A Sticky Mud Trap:
+```lua
+    flags = {
+        speedMod = 0.3, -- Slows the player by 70%
+        interactMessage = "Eww, my boots are stuck in the mud!"
+    }
+```
+
+2. A Radioactive Solid Wall:
+```lua
+    flags = {
+        solid = true,          -- Blocks movement
+        healthAffect = -10,    -- Drains 10 HP per second if you stand next to it
+        interactMessage = "It's glowing green. I shouldn't touch this."
+    }
+```
+
+3. A Healing Spring:
+```lua
+    flags = {
+        speedMod = 0.8,        -- Slightly slower to wade through water
+        healthAffect = 5,      -- Heals 5 HP per second
+        interactMessage = "Ah, refreshing spring water!"
+    }
+```
+
+HOW IT WORKS UNDER THE HOOD
+---------------------------
+When the game starts, `core/factory.lua` automatically scans the `world/tiles/` folder. It reads your tile's script, looks at the `flagTable.lua` defaults, and seamlessly merges them together. This guarantees that your tile will never cause an engine crash due to a "missing variable," and ensures your file sizes stay extremely small since you only write what changes!

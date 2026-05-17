@@ -1,0 +1,38 @@
+GP-PRGV5: UNDERSTANDING THE ECS ARCHITECTURE
+============================================
+
+This engine runs on an Entity-Component-System (ECS). Understanding this is critical if you want to add new mechanics to the game.
+
+1. ENTITIES (The "ID")
+----------------------
+An Entity is literally just a number (an ID). It has no logic and no data. 
+Example: The Player is Entity #1. A wall tile is Entity #2.
+
+2. COMPONENTS (The "Data")
+--------------------------
+Components are pure data structures. They hold variables but NO logic.
+All components are defined in `ecs/components.lua`.
+
+Example: The `Health` component only knows about `current` and `max`.
+```lua
+function Components.Health(hp, maxHp)
+    return { current = hp, max = maxHp or hp }
+end
+```
+If you give an Entity the `Health` component, it is now something that can be damaged.
+
+3. SYSTEMS (The "Logic")
+------------------------
+Systems do all the actual work. They are defined in `ecs/systems.lua`.
+A System queries the Registry for specific Components, and applies logic to them.
+
+Example: The `MovementSystem` asks the Registry: "Give me every Entity that has both a 'Transform' AND a 'Velocity' component."
+Then, it loops through them and updates their X/Y coordinates based on their speed.
+
+HOW TO ADD A NEW MECHANIC (Example: Poison)
+-------------------------------------------
+1. Component: Create a `Poison` component in `components.lua` that stores `duration` and `damagePerSecond`.
+2. Apply: Give the `Poison` component to an Entity (maybe a new Tile triggers it).
+3. System: Create a `PoisonSystem` in `systems.lua` that queries for `Health` and `Poison`. It subtracts HP based on damagePerSecond, and removes the Poison component when the duration hits 0.
+
+By organizing code this way, things don't get tangled. You can easily make a "Poisonous Rock" by giving a Rock entity the Poison component, without writing any new logic for the Rock itself!
