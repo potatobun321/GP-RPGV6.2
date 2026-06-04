@@ -5,15 +5,15 @@ return {
     spritesheet = "content/characters/player/spritesheet.png",
 
     animations = {
+        idle_left   = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,2", duration=0.1 },
+        idle_right  = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,3", duration=0.1 },
+        hurt        = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,2, 2,2, 3,2, 4,2", duration=0.1 },
         walk_down   = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,1, 2,1, 3,1, 4,1", duration=0.1 },
         walk_up     = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,4, 2,4, 3,4, 4,4", duration=0.1 },
         walk_left   = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,2, 2,2, 3,2, 4,2", duration=0.1 },
         walk_right  = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,3, 2,3, 3,3, 4,3", duration=0.1 },
         idle_down   = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,1", duration=0.1 },
-        idle_up     = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,1", duration=0.1 },
-        idle_left   = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,1", duration=0.1 },
-        idle_right  = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,1", duration=0.1 },
-        hurt        = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,2, 2,2, 3,2, 4,2", duration=0.1 },
-        default     = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,4, 2,4, 3,4, 4,4", duration=0.1 },
+        idle_up     = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,4", duration=0.1 },
+        default     = { frameW=64, frameH=64, left=0, top=0, border=0, frames="1,2, 2,2, 3,2, 4,2", duration=0.1 },
     },
 }

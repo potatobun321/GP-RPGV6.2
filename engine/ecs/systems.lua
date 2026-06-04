@@ -35,15 +35,56 @@ function Systems.PlayerInputSystem(dt)
     end
 end
 
-local function checkEntityCollision(id, nx, ny, w, h)
+local SpatialHash = {}
+local CELL_SIZE = 64
+
+local function buildSpatialHash()
+    SpatialHash = {}
     local colliders = Registry.queryCached("Transform|Collider", {"Transform", "Collider"})
     for _, cid in ipairs(colliders) do
-        if cid ~= id then
-            local ct = Registry.get(cid, "Transform")
-            local cc = Registry.get(cid, "Collider")
-            if nx < ct.x + cc.w and nx + w > ct.x and
-               ny < ct.y + cc.h and ny + h > ct.y then
-                return true
+        local ct = Registry.get(cid, "Transform")
+        local cc = Registry.get(cid, "Collider")
+        
+        local minCol = math.floor(ct.x / CELL_SIZE)
+        local maxCol = math.floor((ct.x + cc.w) / CELL_SIZE)
+        local minRow = math.floor(ct.y / CELL_SIZE)
+        local maxRow = math.floor((ct.y + cc.h) / CELL_SIZE)
+        
+        for r = minRow, maxRow do
+            if not SpatialHash[r] then SpatialHash[r] = {} end
+            for c = minCol, maxCol do
+                if not SpatialHash[r][c] then SpatialHash[r][c] = {} end
+                table.insert(SpatialHash[r][c], cid)
+            end
+        end
+    end
+end
+
+local function checkEntityCollision(id, nx, ny, w, h)
+    local minCol = math.floor(nx / CELL_SIZE)
+    local maxCol = math.floor((nx + w) / CELL_SIZE)
+    local minRow = math.floor(ny / CELL_SIZE)
+    local maxRow = math.floor((ny + h) / CELL_SIZE)
+    
+    local checked = {}
+    
+    for r = minRow, maxRow do
+        if SpatialHash[r] then
+            for c = minCol, maxCol do
+                local cell = SpatialHash[r][c]
+                if cell then
+                    for _, cid in ipairs(cell) do
+                        if cid ~= id and not checked[cid] then
+                            checked[cid] = true
+                            local ct = Registry.get(cid, "Transform")
+                            local cc = Registry.get(cid, "Collider")
+                            if nx < ct.x + cc.w and nx + w > ct.x and
+                               ny < ct.y + cc.h and ny + h > ct.y then
+                                return true
+                            end
+                        end
+                    end
+                end
             end
         end
     end
@@ -51,6 +92,7 @@ local function checkEntityCollision(id, nx, ny, w, h)
 end
 
 function Systems.MovementSystem(dt, world)
+    buildSpatialHash()
     local entities = Registry.queryCached(SYS_QUERIES.Movement.sig, SYS_QUERIES.Movement.req)
     for _, id in ipairs(entities) do
         local trans = Registry.get(id, "Transform")
@@ -61,26 +103,48 @@ function Systems.MovementSystem(dt, world)
         local gx = math.floor(cx / world.tileSize)
         local gy = math.floor(cy / world.tileSize)
 
-        local tileId   = world:getTileEntity(gx, gy)
+        local tileData   = world:getTileData(gx, gy)
         local speedMod = 1.0
-        if tileId then
-            local tileData = Registry.get(tileId, "TileData")
-            if tileData and tileData.flags and tileData.flags.speedMod then
-                speedMod = tileData.flags.speedMod
-            end
+        if tileData and tileData.flags and tileData.flags.speedMod then
+            speedMod = tileData.flags.speedMod
         end
 
         vel.currentSpeed = vel.baseSpeed * speedMod
 
-        local fx = trans.x + vel.dx * vel.currentSpeed * dt
-        local fy = trans.y + vel.dy * vel.currentSpeed * dt
+        local targetX = trans.x + vel.dx * vel.currentSpeed * dt
+        local targetY = trans.y + vel.dy * vel.currentSpeed * dt
 
         local collW, collH = trans.w, trans.h
         local coll = Registry.get(id, "Collider")
         if coll then collW, collH = coll.w, coll.h end
 
-        if not world:isSolidPixel(fx, trans.y, collW, collH) and not checkEntityCollision(id, fx, trans.y, collW, collH) then trans.x = fx end
-        if not world:isSolidPixel(trans.x, fy, collW, collH) and not checkEntityCollision(id, trans.x, fy, collW, collH) then trans.y = fy end
+        -- Sub-stepping to prevent tunneling
+        local dist = math.sqrt((targetX - trans.x)^2 + (targetY - trans.y)^2)
+        local maxStep = math.min(collW, collH) / 2
+        local steps = math.ceil(dist / maxStep)
+        if steps == 0 then steps = 1 end
+        
+        local stepX = (targetX - trans.x) / steps
+        local stepY = (targetY - trans.y) / steps
+        
+        for i = 1, steps do
+            local nextX = trans.x + stepX
+            local nextY = trans.y + stepY
+            
+            if not world:isSolidPixel(nextX, trans.y, collW, collH) and not checkEntityCollision(id, nextX, trans.y, collW, collH) then
+                trans.x = nextX
+            else
+                stepX = 0
+            end
+            
+            if not world:isSolidPixel(trans.x, nextY, collW, collH) and not checkEntityCollision(id, trans.x, nextY, collW, collH) then
+                trans.y = nextY
+            else
+                stepY = 0
+            end
+            
+            if stepX == 0 and stepY == 0 then break end
+        end
     end
 end
 
@@ -101,27 +165,24 @@ function Systems.TileEffectSystem(dt, world)
             Context.lastTeleportTile = nil
         end
 
-        local tileId = world:getTileEntity(gx, gy)
-        if tileId then
-            local tileData = Registry.get(tileId, "TileData")
-            if tileData and tileData.flags then
-                if tileData.flags.healthAffect then
-                    health.current = health.current + (tileData.flags.healthAffect * dt)
-                    if health.current < 0   then health.current = 0          end
-                    if health.current > health.max then health.current = health.max end
-                end
-                if tileData.flags.healthAffectInstant and health.immunityTimer <= 0 then
-                    health.current = health.current + tileData.flags.healthAffectInstant
-                    health.immunityTimer = 1.0
-                    if health.current < 0   then health.current = 0          end
-                    if health.current > health.max then health.current = health.max end
-                end
-                if tileData.flags.isSceneTransition then
-                    if not Context.lastTeleportTile then
-                        local Transition = require('engine.core.transition')
-                        Context.lastTeleportTile = {x = gx, y = gy}
-                        Transition.execute(tileData, gx, gy)  -- gx/gy needed for same-map link detection
-                    end
+        local tileData = world:getTileData(gx, gy)
+        if tileData and tileData.flags then
+            if tileData.flags.healthAffect then
+                health.current = health.current + (tileData.flags.healthAffect * dt)
+                if health.current < 0   then health.current = 0          end
+                if health.current > health.max then health.current = health.max end
+            end
+            if tileData.flags.healthAffectInstant and health.immunityTimer <= 0 then
+                health.current = health.current + tileData.flags.healthAffectInstant
+                health.immunityTimer = 1.0
+                if health.current < 0   then health.current = 0          end
+                if health.current > health.max then health.current = health.max end
+            end
+            if tileData.flags.isSceneTransition then
+                if not Context.lastTeleportTile then
+                    local Transition = require('engine.core.transition')
+                    Context.lastTeleportTile = {x = gx, y = gy}
+                    Transition.execute(tileData, gx, gy)  -- gx/gy needed for same-map link detection
                 end
             end
         end
@@ -172,71 +233,39 @@ function Systems.AnimationControllerSystem()
     end
 end
 
--- Fix #9: single-pass RenderSystem — bucket into tiles/chars in one loop,
--- then draw each bucket. Halves entity iteration for maps with 900+ tiles.
+local tileBatches = {}
+
 function Systems.RenderSystem()
     local entities = Registry.queryCached(SYS_QUERIES.Render.sig, SYS_QUERIES.Render.req)
     local colors   = Theme.get()
 
-    -- Single classification pass
-    local tiles, chars = {}, {}
+    -- Draw characters (tiles are now drawn separately in Tilemap:draw)
     for _, id in ipairs(entities) do
         local r = Registry.get(id, "Renderable")
-        if r.type == "tile" then
-            table.insert(tiles, id)
-        elseif r.type == "character" then
-            table.insert(chars, id)
-        end
-    end
+        if r.type == "character" then
+            local t    = Registry.get(id, "Transform")
+            local anim = Registry.get(id, "Animator")
+            local c    = colors[r.colorKey] or {1, 1, 1}
 
-    -- Draw tiles
-    for _, id in ipairs(tiles) do
-        local r = Registry.get(id, "Renderable")
-        local t = Registry.get(id, "Transform")
-        local c = colors[r.colorKey] or {1, 0, 1}
-        if r.texture then
-            if not r.scaleX or not r.scaleY then
-                r.scaleX = t.w / r.texture:getWidth()
-                r.scaleY = t.h / r.texture:getHeight()
-            end
-            love.graphics.setColor(1, 1, 1)
-            love.graphics.draw(r.texture, t.x, t.y, 0, r.scaleX, r.scaleY)
-        else
-            if r.draw_style == "line" then
-                love.graphics.setColor(c[1], c[2], c[3], 0.2)
-                love.graphics.rectangle("line", t.x, t.y, t.w, t.h)
+            if anim and anim.current and anim.animations[anim.current] and r.texture then
+                if not r.scaleX or not r.scaleY then
+                    local w, h = anim.animations[anim.current]:getDimensions()
+                    r.scaleX = t.w / w
+                    r.scaleY = t.h / h
+                end
+                love.graphics.setColor(1, 1, 1, 1)
+                anim.animations[anim.current]:draw(r.texture, t.x, t.y, 0, r.scaleX, r.scaleY)
+            elseif r.texture then
+                if not r.scaleX or not r.scaleY then
+                    r.scaleX = t.w / r.texture:getWidth()
+                    r.scaleY = t.h / r.texture:getHeight()
+                end
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.draw(r.texture, t.x, t.y, 0, r.scaleX, r.scaleY)
             else
                 love.graphics.setColor(c)
                 love.graphics.rectangle("fill", t.x, t.y, t.w, t.h)
             end
-        end
-    end
-
-    -- Draw characters on top
-    for _, id in ipairs(chars) do
-        local r    = Registry.get(id, "Renderable")
-        local t    = Registry.get(id, "Transform")
-        local anim = Registry.get(id, "Animator")
-        local c    = colors[r.colorKey] or {1, 1, 1}
-
-        if anim and anim.current and anim.animations[anim.current] and r.texture then
-            if not r.scaleX or not r.scaleY then
-                local w, h = anim.animations[anim.current]:getDimensions()
-                r.scaleX = t.w / w
-                r.scaleY = t.h / h
-            end
-            love.graphics.setColor(1, 1, 1)
-            anim.animations[anim.current]:draw(r.texture, t.x, t.y, 0, r.scaleX, r.scaleY)
-        elseif r.texture then
-            if not r.scaleX or not r.scaleY then
-                r.scaleX = t.w / r.texture:getWidth()
-                r.scaleY = t.h / r.texture:getHeight()
-            end
-            love.graphics.setColor(1, 1, 1)
-            love.graphics.draw(r.texture, t.x, t.y, 0, r.scaleX, r.scaleY)
-        else
-            love.graphics.setColor(c)
-            love.graphics.rectangle("fill", t.x, t.y, t.w, t.h)
         end
     end
 end

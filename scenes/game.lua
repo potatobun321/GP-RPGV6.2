@@ -87,7 +87,7 @@ function Game:keypressed(key)
         return
     end
 
-    if key == "z" and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")) then
+    if key == "f" and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")) then
         Camera.isFreeCam = not Camera.isFreeCam
         Console.log("Free Camera: " .. tostring(Camera.isFreeCam), {0.5, 1, 0.5})
     end
@@ -110,8 +110,8 @@ end
 
 function Game:draw()
     Camera:attach()
-    Systems.RenderSystem()
     self.world:draw()
+    Systems.RenderSystem()
     Camera:detach()
 
     Systems.UISystem()

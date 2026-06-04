@@ -37,9 +37,7 @@ Context.editor = Editor   -- replaces _G.Editor
 local Registry = require('engine.ecs.registry')
 local function getTileInfo(world, gx, gy)
     if not world then return "void", nil end
-    local tid = world:getTileEntity(gx, gy)
-    if not tid then return "void", nil end
-    local tdata = Registry.get(tid, "TileData")
+    local tdata = world:getTileData(gx, gy)
     if not tdata then return "void", nil end
     local flags = nil
     if tdata.flags then
@@ -89,13 +87,10 @@ local function rebuildTileCache()
     table.sort(Editor._cachedTileIds)
 end
 
+local MapRegistry = require('engine.world.map_registry')
+
 local function rebuildMapOptions()
-    Editor.mapOptions = {}
-    for _, f in ipairs(love.filesystem.getDirectoryItems("content/maps")) do
-        local n = f:match("(.+)%.lua$")
-        if n then table.insert(Editor.mapOptions, n) end
-    end
-    table.sort(Editor.mapOptions)
+    Editor.mapOptions = MapRegistry.getPlayableMaps()
     if #Editor.mapOptions == 0 then Editor.mapOptions = {"map1"} end
 end
 
@@ -140,7 +135,34 @@ function Editor.update(dt, world)
     local down = down1 or down2
 
     if Editor.wasDown and not down then
-        if Editor.toolMode == "area" and Editor.dragStartX and not Editor.showPopup and world then
+        if Editor.toolMode == "cbounds" and Editor.dragStartX and not Editor.showPopup and world then
+            local mx, my = love.mouse.getPosition()
+            local wx = (mx - love.graphics.getWidth()/2) / Camera.scale + Camera.x
+            local wy = (my - love.graphics.getHeight()/2) / Camera.scale + Camera.y
+            local gx = math.floor(wx / world.tileSize)
+            local gy = math.floor(wy / world.tileSize)
+            
+            local minX = math.min(Editor.dragStartX, gx)
+            local maxX = math.max(Editor.dragStartX, gx)
+            local minY = math.min(Editor.dragStartY, gy)
+            local maxY = math.max(Editor.dragStartY, gy)
+            
+            local CameraModule = require('engine.core.camera')
+            if Editor.dragButton == 2 then
+                CameraModule.customBounds = nil
+                local Console = require('engine.core.console')
+                Console.log("Camera bounds cleared.", {0, 1, 0})
+            else
+                CameraModule.customBounds = {
+                    minX * world.tileSize,
+                    (maxX + 1) * world.tileSize,
+                    minY * world.tileSize,
+                    (maxY + 1) * world.tileSize
+                }
+                local Console = require('engine.core.console')
+                Console.log("Camera bounds locked.", {0, 1, 0})
+            end
+        elseif Editor.toolMode == "area" and Editor.dragStartX and not Editor.showPopup and world then
             local mx, my = love.mouse.getPosition()
             local wx = (mx - love.graphics.getWidth()/2) / Camera.scale + Camera.x
             local wy = (my - love.graphics.getHeight()/2) / Camera.scale + Camera.y
@@ -193,8 +215,8 @@ function Editor.mousepressed(x, y, button, istouch, presses, world)
         
         local fillId = button == 1 and Editor.selectedTileId or "void"
 
-        if Editor.toolMode == "area" then
-            if fillId == "scene" then
+        if Editor.toolMode == "area" or Editor.toolMode == "cbounds" then
+            if Editor.toolMode == "area" and fillId == "scene" then
                 local Console = require('engine.core.console')
                 Console.log("Link tile cannot be used with Area tool", {1, 0.5, 0})
                 return true
@@ -252,17 +274,26 @@ function Editor.draw(world)
             love.graphics.scale(Camera.scale)
             love.graphics.translate(-Camera.x, -Camera.y)
             
-            if Editor.toolMode == "area" and Editor.dragStartX and Editor.dragStartY then
+            if (Editor.toolMode == "area" or Editor.toolMode == "cbounds") and Editor.dragStartX and Editor.dragStartY then
                 local minX = math.min(Editor.dragStartX, gx)
                 local maxX = math.max(Editor.dragStartX, gx)
                 local minY = math.min(Editor.dragStartY, gy)
                 local maxY = math.max(Editor.dragStartY, gy)
                 
-                love.graphics.setColor(1, 1, 0, 0.3)
-                love.graphics.rectangle("fill",
-                    minX * world.tileSize, minY * world.tileSize,
-                    (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
-                love.graphics.setColor(1, 1, 0, 0.8)
+                if Editor.toolMode == "cbounds" then
+                    love.graphics.setColor(0, 1, 1, 0.3)
+                    love.graphics.rectangle("fill",
+                        minX * world.tileSize, minY * world.tileSize,
+                        (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
+                    love.graphics.setColor(0, 1, 1, 0.8)
+                else
+                    love.graphics.setColor(1, 1, 0, 0.3)
+                    love.graphics.rectangle("fill",
+                        minX * world.tileSize, minY * world.tileSize,
+                        (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
+                    love.graphics.setColor(1, 1, 0, 0.8)
+                end
+                
                 love.graphics.setLineWidth(2 / Camera.scale)
                 love.graphics.rectangle("line",
                     minX * world.tileSize, minY * world.tileSize,
@@ -366,14 +397,14 @@ function Editor.draw(world)
         y = y + 34
     end
 
-    -- Top center toolbar (Undo / Area / Redo)
+    -- Top center toolbar (Undo / Area / Cbounds / Redo)
     if Editor.isActive or Editor.animX < love.graphics.getWidth() - 1 then
         local progress = (love.graphics.getWidth() - Editor.animX) / Editor.panelWidth
         if progress > 0 then
             local menuY = -60 + 70 * progress
             local bw = 80
             local pad = 10
-            local totalW = 3 * bw + 2 * pad
+            local totalW = 4 * bw + 3 * pad
             local startX = math.floor(sw / 2 - totalW / 2)
             
             if UI.Button("btn_undo", "UNDO", startX, menuY, bw, 32) then
@@ -385,7 +416,12 @@ function Editor.draw(world)
                 Editor.toolMode = Editor.toolMode == "area" and "brush" or "area"
             end
             
-            if UI.Button("btn_redo", "REDO", startX + 2*bw + 2*pad, menuY, bw, 32) then
+            local cbText = Editor.toolMode == "cbounds" and "> CBOUNDS <" or "CBOUNDS"
+            if UI.Button("btn_cbounds", cbText, startX + 2*bw + 2*pad, menuY, bw, 32) then
+                Editor.toolMode = Editor.toolMode == "cbounds" and "brush" or "cbounds"
+            end
+            
+            if UI.Button("btn_redo", "REDO", startX + 3*bw + 3*pad, menuY, bw, 32) then
                 Editor.redo(world)
             end
         end

@@ -6,13 +6,10 @@ local Factory = {
     characters = {}
 }
 
+local Assets = require('engine.core.assets')
+
 local function safeLoad(path)
-    local success, img = pcall(love.graphics.newImage, path)
-    if success then
-        img:setFilter("nearest", "nearest")
-        return img
-    end
-    return nil
+    return Assets.getImage(path)
 end
 
 function Factory.load()
@@ -45,13 +42,32 @@ function Factory.load()
         end
     end
     
-    -- Characters
-    Factory.characters.player = {
-        name = "Player", speed = 200,
-        colorKey = "player", draw_style = "fill",
-        animated = true,
-        texture = safeLoad("content/characters/player/player.png")
-    }
+    -- Dynamically load all characters from content/characters
+    local charDirs = love.filesystem.getDirectoryItems("content/characters")
+    for _, dir in ipairs(charDirs) do
+        local path = "content/characters/" .. dir
+        local info = love.filesystem.getInfo(path)
+        if info and info.type == "directory" then
+            local charDef = nil
+            local luaPath = path .. "/" .. dir .. ".lua"
+            if love.filesystem.getInfo(luaPath) then
+                local chunk = love.filesystem.load(luaPath)
+                if chunk then charDef = chunk() end
+            end
+            
+            if not charDef then
+                -- Fallback defaults for character
+                charDef = {
+                    name = dir:gsub("^%l", string.upper), speed = 200,
+                    colorKey = dir, draw_style = "fill",
+                    animated = love.filesystem.getInfo(path .. "/animations.lua") ~= nil,
+                    texture = safeLoad(path .. "/" .. dir .. ".png") or safeLoad(path .. "/spritesheet.png")
+                }
+            end
+            
+            Factory.characters[dir] = charDef
+        end
+    end
 end
 
 function Factory.getTile(id)

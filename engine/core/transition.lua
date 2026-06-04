@@ -11,17 +11,20 @@ function Transition.findReturnTile(targetMap, currentMap, targetLinkId, excludeX
     local sameMap = (targetMap == currentMap)
 
     if sameMap then
-        local Registry = require('engine.ecs.registry')
-        for _, id in ipairs(Registry.query("TileData") or {}) do
-            local tdata = Registry.get(id, "TileData")
-            if tdata and tdata.typeId == "scene" then
-                if excludeX and excludeY and tdata.gridX == excludeX and tdata.gridY == excludeY then
-                    -- skip origin tile
-                else
-                    local defaults = Factory.getTile("scene").flags or {}
-                    local finalLinkId = (tdata.flags and tdata.flags.linkId) or defaults.linkId
-                    if finalLinkId == targetLinkId then
-                        return tdata.gridX, tdata.gridY
+        local grid = _G.game and _G.game.world and _G.game.world.grid
+        if grid then
+            for gy, row in pairs(grid) do
+                for gx, tdata in pairs(row) do
+                    if tdata.typeId == "scene" then
+                        if excludeX and excludeY and gx == excludeX and gy == excludeY then
+                            -- skip origin tile
+                        else
+                            local defaults = Factory.getTile("scene").flags or {}
+                            local finalLinkId = (tdata.flags and tdata.flags.linkId) or defaults.linkId
+                            if finalLinkId == targetLinkId then
+                                return gx, gy
+                            end
+                        end
                     end
                 end
             end
@@ -30,20 +33,39 @@ function Transition.findReturnTile(targetMap, currentMap, targetLinkId, excludeX
     end
 
     -- If different map, load from disk
-    local chunk = love.filesystem.load("content/maps/" .. targetMap .. ".lua")
-    if not chunk then return nil, nil end
+    local mapData = nil
+    local json = require('lib.json')
+    
+    local savePath = "maps/" .. targetMap .. ".json"
+    if love.filesystem.getInfo(savePath) then
+        local content = love.filesystem.read(savePath)
+        if content then mapData = json.decode(content) end
+    end
+    
+    if not mapData then
+        local content = love.filesystem.read("content/maps/" .. targetMap .. ".json")
+        if content then mapData = json.decode(content) end
+    end
+    
+    if not mapData then
+        local chunk = love.filesystem.load("content/maps/" .. targetMap .. ".lua")
+        if chunk then
+            local ok, data = pcall(chunk)
+            if ok and type(data) == "table" then mapData = data end
+        end
+    end
+    
+    if not mapData or not mapData.tiles then return nil, nil end
 
-    local ok, data = pcall(chunk)
-    if not ok or type(data) ~= "table" then return nil, nil end
-
-    for k, v in pairs(data.tiles or {}) do
-        local t_id, t_flags, t_x, t_y
+    for k, v in pairs(mapData.tiles) do
+        local t_id, t_flags, t_x, t_y, t_len
 
         if type(k) == "number" then
             if type(v) == "table" then
                 t_id    = v.id
                 t_flags = v.flags
                 t_x, t_y = v.x, v.y
+                t_len   = v.len or 1
             end
         else
             if type(v) == "table" then
@@ -54,13 +76,15 @@ function Transition.findReturnTile(targetMap, currentMap, targetLinkId, excludeX
             end
             local sx, sy = k:match("([^,]+),([^,]+)")
             t_x, t_y = tonumber(sx), tonumber(sy)
+            t_len = 1
         end
 
         if t_id == "scene" then
             local defaults    = Factory.getTile("scene").flags or {}
             local finalLinkId = (t_flags and t_flags.linkId) or defaults.linkId
             if finalLinkId == targetLinkId then
-                return t_x, t_y
+                -- Support RLE: Return the center of the link tile run if it's multiple tiles wide
+                return t_x + math.floor((t_len - 1) / 2), t_y
             end
         end
     end

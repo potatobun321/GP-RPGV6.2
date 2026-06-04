@@ -14,24 +14,25 @@ local Camera = {
 function Camera:update(dt, targetX, targetY, world)
     local Editor = Context.editor
     if Editor and Editor.isActive then
-        -- Editor just opened: force freecam and remember it was us who set it
-        if not self._editorFreeCam then
-            self._editorFreeCam = true
+        -- Editor just opened: force freecam and remember previous state
+        if self._savedFreeCam == nil then
+            self._savedFreeCam = self.isFreeCam
             self.isFreeCam = true
         end
         if love.keyboard.isDown("-") then self.baseScale = math.max(0.2, self.baseScale - 2 * dt) end
         if love.keyboard.isDown("=") or love.keyboard.isDown("+") then self.baseScale = math.min(10, self.baseScale + 2 * dt) end
         self.targetScale = self.baseScale
     else
-        -- Editor just closed: release the freecam lock we set, but respect Shift+Z toggle
-        if self._editorFreeCam then
-            self._editorFreeCam = false
-            self.isFreeCam = false
+        -- Editor just closed: restore previous freecam state
+        if self._savedFreeCam ~= nil then
+            self.isFreeCam = self._savedFreeCam
+            self._savedFreeCam = nil
         end
-        if love.keyboard.isDown("z") and not (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")) then
-            self.targetScale = self.baseScale + 1.0
-        elseif self.activeScale then
-            self.targetScale = self.activeScale
+        
+        -- Temporary zoom via Shift+Z key overrides everything with `activeScale`
+        local shiftDown = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        if love.keyboard.isDown("z") and shiftDown then
+            self.targetScale = self.activeScale or (self.baseScale + 1.0)
         else
             self.targetScale = self.baseScale
         end
@@ -52,11 +53,10 @@ function Camera:update(dt, targetX, targetY, world)
     end
 
     if world then
-        local hw = (love.graphics.getWidth() / 2) / self.scale
-        local hh = (love.graphics.getHeight() / 2) / self.scale
-        
         local minX, maxX, minY, maxY
-        if self.customBounds then
+        
+        -- Ignore custom bounds if we are in Free Camera or Editor mode
+        if self.customBounds and not self.isFreeCam then
             minX, maxX, minY, maxY = self.customBounds[1], self.customBounds[2], self.customBounds[3], self.customBounds[4]
         else
             minX = -math.floor(world.width / 2) * world.tileSize
@@ -64,6 +64,21 @@ function Camera:update(dt, targetX, targetY, world)
             minY = -math.floor(world.height / 2) * world.tileSize
             maxY = math.ceil(world.height / 2) * world.tileSize
         end
+        
+        -- If bounded, we CANNOT let the user zoom out so far that the screen 
+        -- becomes larger than the bounded area itself. Clamp the minimum scale.
+        if not self.isFreeCam then
+            local minScaleX = love.graphics.getWidth() / (maxX - minX)
+            local minScaleY = love.graphics.getHeight() / (maxY - minY)
+            local minRequiredScale = math.max(minScaleX, minScaleY)
+            
+            if self.scale < minRequiredScale then
+                self.scale = minRequiredScale
+            end
+        end
+
+        local hw = (love.graphics.getWidth() / 2) / self.scale
+        local hh = (love.graphics.getHeight() / 2) / self.scale
         
         if self.x - hw < minX then self.x = minX + hw end
         if self.x + hw > maxX then self.x = maxX - hw end

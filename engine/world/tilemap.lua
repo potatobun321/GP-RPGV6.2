@@ -1,6 +1,6 @@
--- Fix #27: require at file top so isSolidPixel/setTile don't re-require every frame
 local Registry = require('engine.ecs.registry')
 local Factory  = require('engine.core.factory')
+local Context  = require('engine.core.context')
 
 local Tilemap = {}
 Tilemap.__index = Tilemap
@@ -11,6 +11,8 @@ function Tilemap.new(w, h, size)
     self.height   = h    or 31
     self.tileSize = size or 32
     self.grid     = {}
+    self.tileBatches = {}
+    self.untexturedTiles = {}
     return self
 end
 
@@ -25,39 +27,21 @@ function Tilemap:clear()
         Registry.remove(id)
     end
     self.grid = {}
+    self.tileBatches = {}
+    self.untexturedTiles = {}
+    Context.mapDirty = true
 end
 
 function Tilemap:saveMap(mapName)
-    local tiles   = Registry.query("TileData")
-    
     local mapData = {
         name = mapName,
         width = self.width,
         height = self.height,
         tileSize = self.tileSize,
+        baseScale = require('engine.core.camera').baseScale,
+        customBounds = require('engine.core.camera').customBounds,
         tiles = {}
     }
-    
-    local gridData = {}
-    for _, id in ipairs(tiles) do
-        local tdata = Registry.get(id, "TileData")
-        if tdata then
-            local tDef = Factory.getTile(tdata.typeId)
-            local defaults = tDef.flags or {}
-            
-            local customFlags = nil
-            for k, v in pairs(tdata.flags) do
-                if defaults[k] ~= v then
-                    if not customFlags then customFlags = {} end
-                    customFlags[k] = v
-                end
-            end
-            
-            local y = tdata.gridY
-            if not gridData[y] then gridData[y] = {} end
-            table.insert(gridData[y], {x = tdata.gridX, id = tdata.typeId, flags = customFlags})
-        end
-    end
     
     local function flagsMatch(f1, f2)
         if f1 == nil and f2 == nil then return true end
@@ -67,10 +51,26 @@ function Tilemap:saveMap(mapName)
         return true
     end
 
-    for y, row in pairs(gridData) do
-        table.sort(row, function(a, b) return a.x < b.x end)
+    for y, row in pairs(self.grid) do
+        local sortedRow = {}
+        for x, tdata in pairs(row) do
+            local tDef = Factory.getTile(tdata.typeId)
+            local defaults = tDef.flags or {}
+            local customFlags = nil
+            if tdata.flags then
+                for k, v in pairs(tdata.flags) do
+                    if defaults[k] ~= v then
+                        if not customFlags then customFlags = {} end
+                        customFlags[k] = v
+                    end
+                end
+            end
+            table.insert(sortedRow, {x = x, id = tdata.typeId, flags = customFlags})
+        end
+        table.sort(sortedRow, function(a, b) return a.x < b.x end)
+        
         local run = nil
-        for _, t in ipairs(row) do
+        for _, t in ipairs(sortedRow) do
             if not run then
                 run = {x = t.x, y = y, len = 1, id = t.id, flags = t.flags}
             elseif t.x == run.x + run.len and t.id == run.id and flagsMatch(t.flags, run.flags) then
@@ -83,150 +83,118 @@ function Tilemap:saveMap(mapName)
         if run then table.insert(mapData.tiles, run) end
     end
     
-    local function serialize(val, indent, inline)
-        indent = indent or ""
-        local nextIndent = indent .. "    "
-        if inline then nextIndent = "" end
-        local newline = inline and "" or "\n"
-        
-        if type(val) == "string" then
-            return string.format("%q", val)
-        elseif type(val) == "number" or type(val) == "boolean" then
-            return tostring(val)
-        elseif type(val) == "table" then
-            local isTileEntry = (val.x and val.y and val.id)
-            if isTileEntry then
-                local parts = {}
-                for _, k in ipairs({"x", "y", "len", "id"}) do
-                    if val[k] ~= nil then table.insert(parts, k .. "=" .. serialize(val[k], "", true)) end
-                end
-                if val.flags then table.insert(parts, "flags=" .. serialize(val.flags, "", true)) end
-                return "{" .. table.concat(parts, ", ") .. "}"
-            end
-            
-            local str = "{" .. newline
-            local isArray = true
-            local maxIndex = 0
-            for k, v in pairs(val) do
-                if type(k) ~= "number" or k <= 0 or math.floor(k) ~= k then
-                    isArray = false
-                    break
-                end
-                if k > maxIndex then maxIndex = k end
-            end
-            
-            if isArray then
-                for i = 1, maxIndex do
-                    str = str .. nextIndent .. serialize(val[i], nextIndent, inline) .. "," .. newline
-                end
-            else
-                for k, v in pairs(val) do
-                    local keyStr = type(k) == "string" and k:match("^[%a_][%w_]*$") and k or "[" .. serialize(k, "", true) .. "]"
-                    str = str .. nextIndent .. keyStr .. " = " .. serialize(v, nextIndent, inline) .. "," .. newline
-                end
-            end
-            return str .. (inline and "}" or indent .. "}")
-        end
-        return "nil"
-    end
+    local json = require('lib.json')
+    local str = json.encode(mapData)
     
-    local str = "return " .. serialize(mapData) .. "\n"
-    
-    local path = love.filesystem.getSource() .. "/content/maps/" .. mapName .. ".lua"
-    local f, err = io.open(path, "w")
-    if not f then
-        path = "content/maps/" .. mapName .. ".lua"
-        f, err = io.open(path, "w")
-    end
-    
+    local devPath = love.filesystem.getSource() .. "/content/maps/" .. mapName .. ".json"
+    local f, err = io.open(devPath, "w")
     if f then
         f:write(str)
         f:close()
-        print("Saved map: " .. path)
+        print("Saved map (dev mode): " .. devPath)
     else
-        print("Failed to save map: " .. tostring(err))
+        love.filesystem.createDirectory("maps")
+        local success, msg = love.filesystem.write("maps/" .. mapName .. ".json", str)
+        if success then
+            print("Saved map (save dir): maps/" .. mapName .. ".json")
+        else
+            print("Failed to save map: " .. tostring(msg))
+        end
     end
 end
 
 function Tilemap:loadMap(mapName)
     self:clear()
     
-    local path  = love.filesystem.getSource() .. "/content/maps/" .. mapName .. ".lua"
-    local chunk, err = loadfile(path)
-    if not chunk then
-        path = "content/maps/" .. mapName .. ".lua"
-        chunk, err = loadfile(path)
+    local mapData = nil
+    local json = require('lib.json')
+    
+    local savePath = "maps/" .. mapName .. ".json"
+    if love.filesystem.getInfo(savePath) then
+        local content = love.filesystem.read(savePath)
+        if content then mapData = json.decode(content) end
     end
     
-    if not chunk then
-        print("Map " .. mapName .. " not found. Generating fallback canvas.")
-        self.width = 31
-        self.height = 31
-        
-        local minX = -math.floor(self.width / 2)
-        local maxX = math.ceil(self.width / 2) - 1
-        local minY = -math.floor(self.height / 2)
-        local maxY = math.ceil(self.height / 2) - 1
-        
-        for y = minY, maxY do
-            self.grid[y] = {}
-            for x = minX, maxX do
-                local typeId = "grass"
-                if x == minX or x == maxX or y == minY or y == maxY then
-                    typeId = "wall"
-                end
-                local id = Factory.createTileEntity(x, y, self.tileSize, typeId)
-                self.grid[y][x] = id
-            end
+    if not mapData then
+        local content = love.filesystem.read("content/maps/" .. mapName .. ".json")
+        if content then
+            mapData = json.decode(content)
+        else
+            local chunk = love.filesystem.load("content/maps/" .. mapName .. ".lua")
+            if chunk then mapData = chunk() end
         end
-        return
     end
     
-    local mapData = chunk()
+    if not mapData then
+        print("Error: Map '" .. mapName .. "' not found.")
+        return false
+    end
     self.width = mapData.width
     self.height = mapData.height
     self.tileSize = mapData.tileSize or 32
     
+    local Camera = require('engine.core.camera')
+    if mapData.baseScale then Camera.baseScale = mapData.baseScale end
+    Camera.customBounds = mapData.customBounds or nil
+    
     for k, v in pairs(mapData.tiles) do
         if type(k) == "string" then
-            -- Backwards compatibility for old hashmap format
             local x, y = k:match("([^,]+),([^,]+)")
             x, y = tonumber(x), tonumber(y)
-            if not self.grid[y] then self.grid[y] = {} end
-            
             local typeId = type(v) == "string" and v or v.id
             local customFlags = type(v) == "table" and v.flags or nil
-            
-            local id = Factory.createTileEntity(x, y, self.tileSize, typeId, customFlags)
-            self.grid[y][x] = id
+            self:setTile(x, y, typeId, customFlags)
         else
-            -- New array of objects format + RLE
             local x, y = v.x, v.y
             local length = v.len or 1
-            if not self.grid[y] then self.grid[y] = {} end
-            
             for i = 0, length - 1 do
-                local id = Factory.createTileEntity(x + i, y, self.tileSize, v.id, v.flags)
-                self.grid[y][x + i] = id
+                self:setTile(x + i, y, v.id, v.flags)
             end
         end
     end
+    Context.mapDirty = true
     print("Loaded map: " .. mapName)
 end
 
-function Tilemap:getTileEntity(gx, gy)
+function Tilemap:getTileData(gx, gy)
     if self.grid[gy] and self.grid[gy][gx] then
         return self.grid[gy][gx]
     end
     return nil
 end
 
+function Tilemap:getTileEntity(gx, gy)
+    return self:getTileData(gx, gy)
+end
+
 function Tilemap:setTile(gx, gy, typeId, customFlags)
-    if self.grid[gy] and self.grid[gy][gx] then
-        Registry.remove(self.grid[gy][gx])
-    end
     if not self.grid[gy] then self.grid[gy] = {} end
-    self.grid[gy][gx] = Factory.createTileEntity(gx, gy, self.tileSize, typeId, customFlags)
+    
+    local currentMinX = -math.floor(self.width / 2)
+    local currentMaxX = math.ceil(self.width / 2) - 1
+    local currentMinY = -math.floor(self.height / 2)
+    local currentMaxY = math.ceil(self.height / 2) - 1
+
+    if gx < currentMinX or gx > currentMaxX then
+        local newMinX = math.min(currentMinX, gx)
+        local newMaxX = math.max(currentMaxX, gx)
+        self.width = math.max(math.abs(newMinX) * 2, (newMaxX + 1) * 2)
+    end
+    if gy < currentMinY or gy > currentMaxY then
+        local newMinY = math.min(currentMinY, gy)
+        local newMaxY = math.max(currentMaxY, gy)
+        self.height = math.max(math.abs(newMinY) * 2, (newMaxY + 1) * 2)
+    end
+
+    local tpl = Factory.getTile(typeId)
+    local finalFlags = {}
+    for k, v in pairs(tpl.flags or {}) do finalFlags[k] = v end
+    if customFlags then
+        for k, v in pairs(customFlags) do finalFlags[k] = v end
+    end
+    
+    self.grid[gy][gx] = { typeId = typeId, flags = finalFlags, gridX = gx, gridY = gy }
+    Context.mapDirty = true
 end
 
 function Tilemap:isSolidPixel(px, py, w, h)
@@ -237,27 +205,62 @@ function Tilemap:isSolidPixel(px, py, w, h)
     
     for gy = minY, maxY do
         for gx = minX, maxX do
-            local tid = self:getTileEntity(gx, gy)
-            if tid then
-                local tdata = Registry.get(tid, "TileData")
-                if tdata and tdata.flags and tdata.flags.solid then return true end
-            else
-                return true  -- void = solid boundary
-            end
+            local tdata = self:getTileData(gx, gy)
+            if tdata and tdata.flags and tdata.flags.solid then return true end
+            if not tdata then return true end
         end
     end
     return false
 end
 
 function Tilemap:draw()
-    love.graphics.setColor(1, 1, 1, 0.1)
-    local w    = self.width  * self.tileSize
-    local h    = self.height * self.tileSize
-    local minX = -math.floor(self.width  / 2) * self.tileSize
-    local minY = -math.floor(self.height / 2) * self.tileSize
-    love.graphics.rectangle("line", minX, minY, w, h)
+    if Context.mapDirty then
+        self.tileBatches = {}
+        self.untexturedTiles = {}
+        
+        for y, row in pairs(self.grid) do
+            for x, tdata in pairs(row) do
+                local tpl = Factory.getTile(tdata.typeId)
+                local px = x * self.tileSize
+                local py = y * self.tileSize
+                
+                if tpl.texture then
+                    if not self.tileBatches[tpl.texture] then
+                        self.tileBatches[tpl.texture] = love.graphics.newSpriteBatch(tpl.texture, 10000, "static")
+                    end
+                    local scaleX = self.tileSize / tpl.texture:getWidth()
+                    local scaleY = self.tileSize / tpl.texture:getHeight()
+                    self.tileBatches[tpl.texture]:add(px, py, 0, scaleX, scaleY)
+                else
+                    table.insert(self.untexturedTiles, {px=px, py=py, typeId=tdata.typeId, tpl=tpl})
+                end
+            end
+        end
+        Context.mapDirty = false
+    end
+    
+    local Theme = require('engine.core.theme')
+    local colors = Theme.get()
+    
+    love.graphics.setColor(1, 1, 1, 1)
+    if self.tileBatches then
+        for tex, batch in pairs(self.tileBatches) do
+            love.graphics.draw(batch, 0, 0)
+        end
+    end
+    
+    if self.untexturedTiles then
+        for _, t in ipairs(self.untexturedTiles) do
+            local c = colors[t.tpl.colorKey] or {1, 0, 1}
+            if t.tpl.draw_style == "line" then
+                love.graphics.setColor(c[1], c[2], c[3], 0.2)
+                love.graphics.rectangle("line", t.px, t.py, self.tileSize, self.tileSize)
+            else
+                love.graphics.setColor(c)
+                love.graphics.rectangle("fill", t.px, t.py, self.tileSize, self.tileSize)
+            end
+        end
+    end
 end
-
--- Fix #28: removed empty update(dt) stub
 
 return Tilemap
