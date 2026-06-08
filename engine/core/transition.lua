@@ -33,27 +33,8 @@ function Transition.findReturnTile(targetMap, currentMap, targetLinkId, excludeX
     end
 
     -- If different map, load from disk
-    local mapData = nil
-    local json = require('lib.json')
-    
-    local savePath = "maps/" .. targetMap .. ".json"
-    if love.filesystem.getInfo(savePath) then
-        local content = love.filesystem.read(savePath)
-        if content then mapData = json.decode(content) end
-    end
-    
-    if not mapData then
-        local content = love.filesystem.read("content/maps/" .. targetMap .. ".json")
-        if content then mapData = json.decode(content) end
-    end
-    
-    if not mapData then
-        local chunk = love.filesystem.load("content/maps/" .. targetMap .. ".lua")
-        if chunk then
-            local ok, data = pcall(chunk)
-            if ok and type(data) == "table" then mapData = data end
-        end
-    end
+    local Assets = require('engine.core.assets')
+    local mapData = Assets.getMapData(targetMap)
     
     if not mapData or not mapData.tiles then return nil, nil end
 

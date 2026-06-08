@@ -18,6 +18,11 @@ function Game:load()
     self.currentMapName = "map1"
     self.world = Tilemap.new(31, 31, 32)
     self.world:loadMap(self.currentMapName)
+    if self.world.mapZoomLevel then
+        Camera.profiles.gameplay.zoomLevel = self.world.mapZoomLevel
+        Camera.profiles.gameplay.targetZoomLevel = self.world.mapZoomLevel
+    end
+    Camera.customBounds = self.world.customBounds
 
     -- Guard against duplicate event listener on re-load (#32)
     if not self._mapEventRegistered then
@@ -26,6 +31,12 @@ function Game:load()
             self.world:saveMap(self.currentMapName)
             self.currentMapName = targetMap
             self.world:loadMap(self.currentMapName)
+            
+            if self.world.mapZoomLevel then
+                Camera.profiles.gameplay.zoomLevel = self.world.mapZoomLevel
+                Camera.profiles.gameplay.targetZoomLevel = self.world.mapZoomLevel
+            end
+            Camera.customBounds = self.world.customBounds
 
             if self.playerId then
                 local trans = Registry.get(self.playerId, "Transform")
@@ -62,6 +73,9 @@ function Game:update(dt)
 
     local trans = Registry.get(self.playerId, "Transform")
     if trans then
+        local shiftDown = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        Camera.profiles.gameplay.tempZoomActive = (love.keyboard.isDown("z") and shiftDown)
+        
         local tx = trans.x + trans.w / 2
         local ty = trans.y + trans.h / 2
         Camera:update(dt, tx, ty, self.world)
@@ -73,7 +87,8 @@ function Game:textinput(t)
 end
 
 function Game:wheelmoved(x, y)
-    if Console.isOpen then Console.wheelmoved(x, y) end
+    if Console.isOpen then Console.wheelmoved(x, y); return end
+    if Editor.isActive then Editor.wheelmoved(x, y) end
 end
 
 function Game:keypressed(key)
@@ -97,12 +112,9 @@ function Game:keypressed(key)
         if trans then
             local gx = math.floor((trans.x + trans.w/2) / self.world.tileSize)
             local gy = math.floor((trans.y + trans.h/2) / self.world.tileSize)
-            local tileId = self.world:getTileEntity(gx, gy)
-            if tileId then
-                local tileData = Registry.get(tileId, "TileData")
-                if tileData and tileData.flags and tileData.flags.interactMessage then
-                    Console.log("Interaction: " .. tileData.flags.interactMessage, {1, 1, 0})
-                end
+            local tdata = self.world:getTileData(gx, gy)
+            if tdata and tdata.flags and tdata.flags.interactMessage then
+                Console.log("Interaction: " .. tdata.flags.interactMessage, {1, 1, 0})
             end
         end
     end
@@ -124,6 +136,16 @@ function Game:mousepressed(x, y, button, istouch, presses)
     if Editor.mousepressed(x, y, button, istouch, presses, self.world) then
         return
     end
+end
+
+function Game:mousereleased(x, y, button, istouch, presses)
+    if Console.isOpen then return end
+    if Editor.isActive then Editor.mousereleased(x, y, button, istouch, presses) end
+end
+
+function Game:mousemoved(x, y, dx, dy, istouch)
+    if Console.isOpen then return end
+    if Editor.isActive then Editor.mousemoved(x, y, dx, dy, istouch) end
 end
 
 return Game

@@ -217,16 +217,26 @@ function Console.setupGlobals(game)
     
     Console.env.zoom = {
         set = function(s)
-            Camera.baseScale = tonumber(s) or 2.0
-            Console.log("Zoom set to: " .. tostring(Camera.baseScale), {0, 1, 0})
+            local n = tonumber(s)
+            if not n or n < 0 or n > 6 or n ~= math.floor(n) then
+                return Console.log("ERR: zoom.set requires integer 0-6", {1, 0.2, 0.2})
+            end
+            Camera.profiles.gameplay.zoomLevel = n
+            Camera.profiles.gameplay.targetZoomLevel = n
+            Console.log("Gameplay zoom set to Level " .. n, {0, 1, 0})
         end,
         temp = function(s)
-            Camera.activeScale = tonumber(s)
-            if s then
-                Console.log("Temp zoom active: " .. tostring(s), {0, 1, 0})
-            else
+            if s == "clear" then
+                Camera.profiles.gameplay.activeZoomLevel = nil
                 Console.log("Temp zoom cleared.", {0, 1, 0})
+                return
             end
+            local n = tonumber(s)
+            if not n or n < 0 or n > 6 or n ~= math.floor(n) then
+                return Console.log("ERR: zoom.temp requires integer 0-6 or 'clear'", {1, 0.2, 0.2})
+            end
+            Camera.profiles.gameplay.activeZoomLevel = n
+            Console.log("Temp zoom active: Level " .. n, {0, 1, 0})
         end
     }
     

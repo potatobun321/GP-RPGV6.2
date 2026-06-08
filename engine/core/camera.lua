@@ -1,92 +1,156 @@
 -- core/camera.lua
--- Responsibility: Handles view translation (following the player)
+-- Responsibility: Handles view translation, zooming profiles, and bounds clamping.
 
 local Context = require('engine.core.context')
 
-local Camera = {
-    x = 0, y = 0,
-    scale = 2.0, targetScale = 2.0,
-    baseScale = 2.0, activeScale = nil,
+local Camera = {}
+
+local State = {
+    activeProfile = "gameplay",
     customBounds = nil,
-    isFreeCam = false
+    profiles = {
+        gameplay = {
+            x = 0, y = 0,
+            zoomLevel = 1,          -- 1 is standard (2.0x scale)
+            targetZoomLevel = 1,
+            activeZoomLevel = nil,  -- for temp zoom (Shift+Z)
+            scale = 2.0,            -- current lerped scale float
+            _isFreeCam = false
+        },
+        editor = {
+            x = 0, y = 0,
+            scale = 2.0,            -- continuous float
+            targetScale = 2.0,
+            isFreeCam = true
+        }
+    }
 }
+
+function Camera.getScaleFromLevel(lvl)
+    -- Levels map to exact integers: 0=1x, 1=2x, 2=3x, 3=4x, 4=5x, 5=6x
+    return 1.0 + math.max(0, lvl)
+end
+
+setmetatable(Camera, {
+    __index = function(t, k)
+        if State[k] ~= nil then return State[k] end
+        
+        local p = State.profiles[State.activeProfile]
+        if k == "x" then return p.x end
+        if k == "y" then return p.y end
+        if k == "scale" then return p.scale end
+        
+        if k == "isFreeCam" then
+            if State.activeProfile == "editor" then return p.isFreeCam end
+            return p._isFreeCam
+        end
+        
+        return nil
+    end,
+    __newindex = function(t, k, v)
+        if k == "activeProfile" or k == "customBounds" or k == "profiles" then 
+            State[k] = v 
+            return 
+        end
+        
+        local p = State.profiles[State.activeProfile]
+        if k == "x" then p.x = v return end
+        if k == "y" then p.y = v return end
+        if k == "scale" then p.scale = v return end
+        
+        if k == "isFreeCam" then
+            if State.activeProfile == "editor" then p.isFreeCam = v
+            else p._isFreeCam = v end
+            return
+        end
+        
+        rawset(t, k, v)
+    end
+})
 
 function Camera:update(dt, targetX, targetY, world)
     local Editor = Context.editor
-    if Editor and Editor.isActive then
-        -- Editor just opened: force freecam and remember previous state
-        if self._savedFreeCam == nil then
-            self._savedFreeCam = self.isFreeCam
-            self.isFreeCam = true
-        end
-        if love.keyboard.isDown("-") then self.baseScale = math.max(0.2, self.baseScale - 2 * dt) end
-        if love.keyboard.isDown("=") or love.keyboard.isDown("+") then self.baseScale = math.min(10, self.baseScale + 2 * dt) end
-        self.targetScale = self.baseScale
-    else
-        -- Editor just closed: restore previous freecam state
-        if self._savedFreeCam ~= nil then
-            self.isFreeCam = self._savedFreeCam
-            self._savedFreeCam = nil
-        end
-        
-        -- Temporary zoom via Shift+Z key overrides everything with `activeScale`
-        local shiftDown = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-        if love.keyboard.isDown("z") and shiftDown then
-            self.targetScale = self.activeScale or (self.baseScale + 1.0)
-        else
-            self.targetScale = self.baseScale
-        end
-    end
-    self.scale = self.scale + (self.targetScale - self.scale) * 10 * dt
-    
-    local tx, ty
-    if self.isFreeCam then
-        local camSpeed = 400 / self.scale
-        if love.keyboard.isDown("left") then self.x = self.x - camSpeed * dt end
-        if love.keyboard.isDown("right") then self.x = self.x + camSpeed * dt end
-        if love.keyboard.isDown("up") then self.y = self.y - camSpeed * dt end
-        if love.keyboard.isDown("down") then self.y = self.y + camSpeed * dt end
-    else
-        tx, ty = targetX, targetY
-        self.x = self.x + (tx - self.x) * 5 * dt
-        self.y = self.y + (ty - self.y) * 5 * dt
+    local isEditorActive = Editor and Editor.isActive
+
+    -- Profile Switching
+    if isEditorActive and State.activeProfile == "gameplay" then
+        State.activeProfile = "editor"
+        -- Inherit position so the camera doesn't teleport
+        State.profiles.editor.x = State.profiles.gameplay.x
+        State.profiles.editor.y = State.profiles.gameplay.y
+        State.profiles.editor.scale = State.profiles.gameplay.scale
+        State.profiles.editor.targetScale = State.profiles.gameplay.scale
+    elseif not isEditorActive and State.activeProfile == "editor" then
+        State.activeProfile = "gameplay"
     end
 
-    if world then
-        local minX, maxX, minY, maxY
-        
-        -- Ignore custom bounds if we are in Free Camera or Editor mode
-        if self.customBounds and not self.isFreeCam then
-            minX, maxX, minY, maxY = self.customBounds[1], self.customBounds[2], self.customBounds[3], self.customBounds[4]
-        else
-            minX = -math.floor(world.width / 2) * world.tileSize
-            maxX = math.ceil(world.width / 2) * world.tileSize
-            minY = -math.floor(world.height / 2) * world.tileSize
-            maxY = math.ceil(world.height / 2) * world.tileSize
+    local p = State.profiles[State.activeProfile]
+
+    if State.activeProfile == "editor" then
+        if love.keyboard.isDown("0") and world then
+            local sw = love.graphics.getWidth()
+            local sh = love.graphics.getHeight()
+            local mw = world.width * world.tileSize
+            local mh = world.height * world.tileSize
+            p.targetScale = math.min(sw / mw, sh / mh)
         end
         
-        -- If bounded, we CANNOT let the user zoom out so far that the screen 
-        -- becomes larger than the bounded area itself. Clamp the minimum scale.
-        if not self.isFreeCam then
-            local minScaleX = love.graphics.getWidth() / (maxX - minX)
-            local minScaleY = love.graphics.getHeight() / (maxY - minY)
-            local minRequiredScale = math.max(minScaleX, minScaleY)
+        p.scale = p.scale + (p.targetScale - p.scale) * 10 * dt
+
+    elseif State.activeProfile == "gameplay" then
+        -- Zoom logic (Discrete)
+        local finalTargetZoom = p.zoomLevel
+        if p.tempZoomActive then
+            finalTargetZoom = p.activeZoomLevel or (p.zoomLevel + 1)
+        end
+
+        local targetScale = self.getScaleFromLevel(finalTargetZoom)
+        p.scale = p.scale + (targetScale - p.scale) * 10 * dt
+
+        -- Movement Logic
+        if p._isFreeCam then
+            local camSpeed = 400 / p.scale
+            if love.keyboard.isDown("left") then p.x = p.x - camSpeed * dt end
+            if love.keyboard.isDown("right") then p.x = p.x + camSpeed * dt end
+            if love.keyboard.isDown("up") then p.y = p.y - camSpeed * dt end
+            if love.keyboard.isDown("down") then p.y = p.y + camSpeed * dt end
+        else
+            p.x = p.x + (targetX - p.x) * 5 * dt
+            p.y = p.y + (targetY - p.y) * 5 * dt
+        end
+
+        -- Bounds Logic
+        if world then
+            local minX, maxX, minY, maxY
             
-            if self.scale < minRequiredScale then
-                self.scale = minRequiredScale
+            if State.customBounds and not p._isFreeCam then
+                minX, maxX, minY, maxY = State.customBounds[1], State.customBounds[2], State.customBounds[3], State.customBounds[4]
+            else
+                minX = -math.floor(world.width / 2) * world.tileSize
+                maxX = math.ceil(world.width / 2) * world.tileSize
+                minY = -math.floor(world.height / 2) * world.tileSize
+                maxY = math.ceil(world.height / 2) * world.tileSize
+            end
+
+            if not p._isFreeCam then
+                local hw = (love.graphics.getWidth() / 2) / p.scale
+                local hh = (love.graphics.getHeight() / 2) / p.scale
+                
+                if (maxX - minX) < (hw * 2) then
+                    p.x = (minX + maxX) / 2
+                else
+                    if p.x - hw < minX then p.x = minX + hw end
+                    if p.x + hw > maxX then p.x = maxX - hw end
+                end
+
+                if (maxY - minY) < (hh * 2) then
+                    p.y = (minY + maxY) / 2
+                else
+                    if p.y - hh < minY then p.y = minY + hh end
+                    if p.y + hh > maxY then p.y = maxY - hh end
+                end
             end
         end
-
-        local hw = (love.graphics.getWidth() / 2) / self.scale
-        local hh = (love.graphics.getHeight() / 2) / self.scale
-        
-        if self.x - hw < minX then self.x = minX + hw end
-        if self.x + hw > maxX then self.x = maxX - hw end
-        if self.y - hh < minY then self.y = minY + hh end
-        if self.y + hh > maxY then self.y = maxY - hh end
-        
-        if (maxX - minX) < (hw * 2) then self.x = (minX + maxX) / 2 end
-        if (maxY - minY) < (hh * 2) then self.y = (minY + maxY) / 2 end
     end
 end
 

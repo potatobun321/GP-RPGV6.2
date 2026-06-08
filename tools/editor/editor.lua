@@ -206,8 +206,19 @@ function Editor.mousepressed(x, y, button, istouch, presses, world)
         return true
     end
 
+    -- Panning (MMB or Space+LMB)
+    if button == 3 or (button == 1 and love.keyboard.isDown("space")) then
+        Editor.isPanning = true
+        Editor.panStartX = x
+        Editor.panStartY = y
+        Editor.panStartCamX = Camera.profiles.editor.x
+        Editor.panStartCamY = Camera.profiles.editor.y
+        love.mouse.setCursor(love.mouse.getSystemCursor("hand"))
+        return true
+    end
+
     -- World-space tile painting
-    if button == 1 or button == 2 then
+    if (button == 1 and not love.keyboard.isDown("space")) or button == 2 then
         local wx = (x - love.graphics.getWidth()/2) / Camera.scale + Camera.x
         local wy = (y - love.graphics.getHeight()/2) / Camera.scale + Camera.y
         local gx = math.floor(wx / world.tileSize)
@@ -252,6 +263,29 @@ function Editor.mousepressed(x, y, button, istouch, presses, world)
     return false
 end
 
+function Editor.mousereleased(x, y, button, istouch, presses)
+    if not Editor.isActive then return end
+    if Editor.isPanning and (button == 3 or button == 1) then
+        Editor.isPanning = false
+        love.mouse.setCursor()
+    end
+end
+
+function Editor.mousemoved(x, y, dx, dy, istouch)
+    if not Editor.isActive or not Editor.isPanning then return end
+    local Camera = require('engine.core.camera')
+    local p = Camera.profiles.editor
+    p.x = Editor.panStartCamX - (x - Editor.panStartX) / p.scale
+    p.y = Editor.panStartCamY - (y - Editor.panStartY) / p.scale
+end
+
+function Editor.wheelmoved(x, y)
+    if not Editor.isActive or Editor.showPopup then return end
+    local Camera = require('engine.core.camera')
+    local p = Camera.profiles.editor
+    p.targetScale = math.max(0.1, math.min(10, p.targetScale + y * 0.2))
+end
+
 -- ── Draw ──────────────────────────────────────────────────────────────────────
 function Editor.draw(world)
     if not Editor.isActive and Editor.animX >= love.graphics.getWidth() - 1 then return end
@@ -280,22 +314,27 @@ function Editor.draw(world)
                 local minY = math.min(Editor.dragStartY, gy)
                 local maxY = math.max(Editor.dragStartY, gy)
                 
+                local alphaPulse = 0.4 + 0.6 * math.abs(math.sin(love.timer.getTime() * 5))
+                local outlineWidth = 3 / Camera.scale
+
                 if Editor.toolMode == "cbounds" then
-                    love.graphics.setColor(0, 1, 1, 0.3)
-                    love.graphics.rectangle("fill",
-                        minX * world.tileSize, minY * world.tileSize,
-                        (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
-                    love.graphics.setColor(0, 1, 1, 0.8)
+                    love.graphics.setColor(0, 1, 1, alphaPulse)
                 else
-                    love.graphics.setColor(1, 1, 0, 0.3)
-                    love.graphics.rectangle("fill",
-                        minX * world.tileSize, minY * world.tileSize,
-                        (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
-                    love.graphics.setColor(1, 1, 0, 0.8)
+                    love.graphics.setColor(1, 1, 0, alphaPulse)
                 end
                 
-                love.graphics.setLineWidth(2 / Camera.scale)
+                love.graphics.setLineWidth(outlineWidth)
                 love.graphics.rectangle("line",
+                    minX * world.tileSize, minY * world.tileSize,
+                    (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
+                
+                -- Optional ultra-faint interior to help grounding, no visual clutter
+                if Editor.toolMode == "cbounds" then
+                    love.graphics.setColor(0, 1, 1, 0.05)
+                else
+                    love.graphics.setColor(1, 1, 0, 0.05)
+                end
+                love.graphics.rectangle("fill",
                     minX * world.tileSize, minY * world.tileSize,
                     (maxX - minX + 1) * world.tileSize, (maxY - minY + 1) * world.tileSize)
             else
@@ -411,13 +450,19 @@ function Editor.draw(world)
                 Editor.undo(world)
             end
             
-            local areaText = Editor.toolMode == "area" and "> AREA <" or "AREA"
-            if UI.Button("btn_area", areaText, startX + bw + pad, menuY, bw, 32) then
+            if Editor.toolMode == "area" then
+                love.graphics.setColor(1, 1, 0, 1)
+                love.graphics.rectangle("fill", startX + bw + pad - 2, menuY - 2, bw + 4, 32 + 4)
+            end
+            if UI.Button("btn_area", "AREA", startX + bw + pad, menuY, bw, 32) then
                 Editor.toolMode = Editor.toolMode == "area" and "brush" or "area"
             end
             
-            local cbText = Editor.toolMode == "cbounds" and "> CBOUNDS <" or "CBOUNDS"
-            if UI.Button("btn_cbounds", cbText, startX + 2*bw + 2*pad, menuY, bw, 32) then
+            if Editor.toolMode == "cbounds" then
+                love.graphics.setColor(0, 1, 1, 1)
+                love.graphics.rectangle("fill", startX + 2*bw + 2*pad - 2, menuY - 2, bw + 4, 32 + 4)
+            end
+            if UI.Button("btn_cbounds", "CBOUNDS", startX + 2*bw + 2*pad, menuY, bw, 32) then
                 Editor.toolMode = Editor.toolMode == "cbounds" and "brush" or "cbounds"
             end
             

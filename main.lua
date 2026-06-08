@@ -60,6 +60,11 @@ function love.mousepressed(x, y, button, istouch, presses)
     if s and s.mousepressed then s:mousepressed(x, y, button, istouch, presses) end
 end
 
+function love.mousemoved(x, y, dx, dy, istouch)
+    local s = Context.scene
+    if s and s.mousemoved then s:mousemoved(x, y, dx, dy, istouch) end
+end
+
 function love.mousereleased(x, y, button, istouch, presses)
     local s = Context.scene
     if s and s.mousereleased then s:mousereleased(x, y, button, istouch, presses) end

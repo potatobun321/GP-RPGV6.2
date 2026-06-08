@@ -22,4 +22,32 @@ function Assets.clear()
     Assets.images = {}
 end
 
+function Assets.getMapData(mapName)
+    local json = require('lib.json')
+    local mapData = nil
+    
+    local savePath = "maps/" .. mapName .. ".json"
+    if love.filesystem.getInfo(savePath) then
+        local content = love.filesystem.read(savePath)
+        if content then mapData = json.decode(content) end
+    end
+    
+    if not mapData then
+        local content = love.filesystem.read("content/maps/" .. mapName .. ".json")
+        if content then
+            mapData = json.decode(content)
+        end
+    end
+    
+    if not mapData then
+        local chunk = love.filesystem.load("content/maps/" .. mapName .. ".lua")
+        if chunk then
+            local ok, data = pcall(chunk)
+            if ok and type(data) == "table" then mapData = data end
+        end
+    end
+    
+    return mapData
+end
+
 return Assets

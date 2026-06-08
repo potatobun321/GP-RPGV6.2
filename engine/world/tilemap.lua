@@ -38,7 +38,7 @@ function Tilemap:saveMap(mapName)
         width = self.width,
         height = self.height,
         tileSize = self.tileSize,
-        baseScale = require('engine.core.camera').baseScale,
+        zoomLevel = require('engine.core.camera').profiles.gameplay.zoomLevel,
         customBounds = require('engine.core.camera').customBounds,
         tiles = {}
     }
@@ -106,24 +106,8 @@ end
 function Tilemap:loadMap(mapName)
     self:clear()
     
-    local mapData = nil
-    local json = require('lib.json')
-    
-    local savePath = "maps/" .. mapName .. ".json"
-    if love.filesystem.getInfo(savePath) then
-        local content = love.filesystem.read(savePath)
-        if content then mapData = json.decode(content) end
-    end
-    
-    if not mapData then
-        local content = love.filesystem.read("content/maps/" .. mapName .. ".json")
-        if content then
-            mapData = json.decode(content)
-        else
-            local chunk = love.filesystem.load("content/maps/" .. mapName .. ".lua")
-            if chunk then mapData = chunk() end
-        end
-    end
+    local Assets = require('engine.core.assets')
+    local mapData = Assets.getMapData(mapName)
     
     if not mapData then
         print("Error: Map '" .. mapName .. "' not found.")
@@ -133,9 +117,14 @@ function Tilemap:loadMap(mapName)
     self.height = mapData.height
     self.tileSize = mapData.tileSize or 32
     
-    local Camera = require('engine.core.camera')
-    if mapData.baseScale then Camera.baseScale = mapData.baseScale end
-    Camera.customBounds = mapData.customBounds or nil
+    self.mapZoomLevel = nil
+    if mapData.zoomLevel then
+        self.mapZoomLevel = mapData.zoomLevel
+    elseif mapData.baseScale then
+        -- Legacy support: convert baseScale float directly to discrete zoomLevel ladder
+        self.mapZoomLevel = math.floor(mapData.baseScale - 1.0 + 0.5)
+    end
+    self.customBounds = mapData.customBounds or nil
     
     for k, v in pairs(mapData.tiles) do
         if type(k) == "string" then
@@ -161,10 +150,6 @@ function Tilemap:getTileData(gx, gy)
         return self.grid[gy][gx]
     end
     return nil
-end
-
-function Tilemap:getTileEntity(gx, gy)
-    return self:getTileData(gx, gy)
 end
 
 function Tilemap:setTile(gx, gy, typeId, customFlags)
