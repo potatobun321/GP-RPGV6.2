@@ -4,6 +4,7 @@
     "npm:cors@^2.8.5": "2.8.6",
     "npm:express@^4.19.2": "4.22.2",
     "npm:multer@^1.4.5-lts.1": "1.4.5-lts.2",
+    "npm:qrcode-terminal@0.12": "0.12.0",
     "npm:simple-git@^3.24.0": "3.36.0"
   },
   "npm": {
@@ -366,6 +367,10 @@
         "ipaddr.js"
       ]
     },
+    "qrcode-terminal@0.12.0": {
+      "integrity": "sha512-EXtzRZmC+YGmGlDFbXKxQiMZNwCLEO6BANKXG4iCtSIM0yqc/pappSx3RIKr4r0uh5JsBckOXeKrB3Iz7mdQpQ==",
+      "bin": true
+    },
     "qs@6.15.3": {
       "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
       "dependencies": [
@@ -529,6 +534,7 @@
         "npm:cors@^2.8.5",
         "npm:express@^4.19.2",
         "npm:multer@^1.4.5-lts.1",
+        "npm:qrcode-terminal@0.12",
         "npm:simple-git@^3.24.0"
       ]
     }

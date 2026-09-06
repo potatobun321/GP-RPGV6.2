@@ -275,16 +275,57 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(WEB_DIR, 'index.html'));
 });
 
+// Helper to get local network IP
+function getLanIp() {
+  const os = require('os');
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        if (!iface.address.startsWith('169.254.') && !iface.address.startsWith('192.168.56.')) {
+          return iface.address;
+        }
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+
 // Start listening
 app.listen(PORT, HOST, () => {
-  console.log('====================================================');
-  console.log('  .gitmobile - Mobile Git Bridge Active');
-  console.log(`  Repository: ${REPO_ROOT}`);
-  console.log(`  Local URL : http://${HOST}:${PORT}`);
-  console.log(`  PIN Auth  : ${config.pin ? 'ENABLED' : 'DISABLED (Open)'}`);
-  console.log('====================================================');
-  console.log('To connect from mobile via Termux:');
-  console.log(`  ssh -N -L ${PORT}:${HOST}:${PORT} <user>@<this-machine-ip>`);
-  console.log(`  Then open http://localhost:${PORT} in your phone's browser.`);
-  console.log('====================================================');
+  const lanIp = getLanIp();
+  const mobileUrl = `http://${lanIp}:${PORT}`;
+  const localUrl = `http://localhost:${PORT}`;
+
+  console.log('\n================================================================');
+  console.log('       .gitmobile — Mobile Git Control Center & Bridge          ');
+  console.log('================================================================');
+  console.log(`  📂 Repository : ${REPO_ROOT}`);
+  console.log(`  🔒 PIN Auth   : ${config.pin ? 'ENABLED (' + config.pin + ')' : 'DISABLED (Open)'}`);
+
+  // Print Terminal ASCII QR Code
+  try {
+    const qrcode = require('qrcode-terminal');
+    console.log('\n  📱 Scan with your phone camera to open:\n');
+    qrcode.generate(mobileUrl, { small: true }, (qr) => {
+      console.log(qr.split('\n').map(line => '     ' + line).join('\n'));
+    });
+  } catch (_) {}
+
+  // High-Visibility Copyable URL Box
+  console.log('\n  ┌────────────────────────────────────────────────────────────┐');
+  console.log(`  │  📱 Mobile Access URL (Tap or Copy):                       │`);
+  console.log(`  │  👉  ${mobileUrl.padEnd(52)}│`);
+  console.log(`  │                                                            │`);
+  console.log(`  │  💻  Local Access: ${localUrl.padEnd(41)}│`);
+  console.log('  └────────────────────────────────────────────────────────────┘');
+
+  // Termux auto-launch check
+  if (process.env.TERMUX_VERSION || fs.existsSync('/data/data/com.termux')) {
+    console.log('\n  [Termux Detected] Launching mobile browser...');
+    const { exec } = require('child_process');
+    exec(`termux-open-url ${localUrl}`, () => {});
+  }
+
+  console.log('\n================================================================\n');
 });
