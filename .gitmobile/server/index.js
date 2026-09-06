@@ -151,6 +151,37 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
+// API: Get or Set Remote
+app.get('/api/remote', async (req, res) => {
+  try {
+    const url = await gitOps.getRemoteUrl(REPO_ROOT);
+    res.json({ success: true, remoteUrl: url });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/remote', async (req, res) => {
+  try {
+    const { url } = req.body;
+    await gitOps.setRemoteUrl(REPO_ROOT, url);
+    res.json({ success: true, remoteUrl: url });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// API: Execute Custom Git Command
+app.post('/api/exec', async (req, res) => {
+  try {
+    const { command } = req.body;
+    const result = await gitOps.executeCustomGit(REPO_ROOT, command);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.stderr || err.message || err });
+  }
+});
+
 // API: Commit History
 app.get('/api/history', async (req, res) => {
   try {

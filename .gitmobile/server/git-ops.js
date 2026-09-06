@@ -297,6 +297,58 @@ function writeSafeFile(repoPath, relFilePath, content) {
   return { success: true, path: relFilePath };
 }
 
+/**
+ * Get or set remote origin URL
+ */
+async function getRemoteUrl(repoPath) {
+  try {
+    const res = await runGit(repoPath, ['remote', 'get-url', 'origin']);
+    return res.stdout.trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+async function setRemoteUrl(repoPath, url) {
+  if (!url || !url.trim()) {
+    throw new Error('Remote URL is required');
+  }
+  const cleanUrl = url.trim();
+  try {
+    await runGit(repoPath, ['remote', 'get-url', 'origin']);
+    // Origin exists, update it
+    return await runGit(repoPath, ['remote', 'set-url', 'origin', cleanUrl]);
+  } catch (_) {
+    // Origin does not exist, add it
+    return await runGit(repoPath, ['remote', 'add', 'origin', cleanUrl]);
+  }
+}
+
+/**
+ * Execute custom git command with safety boundaries
+ */
+async function executeCustomGit(repoPath, commandString) {
+  if (!commandString || !commandString.trim()) {
+    throw new Error('Command is required');
+  }
+
+  const raw = commandString.trim();
+  // Strip optional leading 'git'
+  const cleanCmd = raw.startsWith('git ') ? raw.substring(4).trim() : raw;
+  
+  // Basic safety check: block destructive system commands if any
+  const forbidden = [';', '&&', '||', '|', '`', '$', '>', '<'];
+  for (const char of forbidden) {
+    if (cleanCmd.includes(char)) {
+      throw new Error(`Command contains unsupported shell operator '${char}'`);
+    }
+  }
+
+  // Parse arguments safely
+  const args = cleanCmd.split(/\s+/).filter(Boolean);
+  return await runGit(repoPath, args);
+}
+
 module.exports = {
   runGit,
   getRepoStatus,
@@ -307,5 +359,8 @@ module.exports = {
   getHistory,
   listRepositoryFiles,
   readSafeFile,
-  writeSafeFile
+  writeSafeFile,
+  getRemoteUrl,
+  setRemoteUrl,
+  executeCustomGit
 };

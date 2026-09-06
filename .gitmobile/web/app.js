@@ -1,27 +1,31 @@
 /**
- * .gitmobile - Mobile Git Bridge Client Logic
+ * .gitmobile - GitHub Primer Client Logic
  */
 
-// Application State
 const state = {
   currentTab: 'dashboard',
   currentFolder: '',
   authPin: localStorage.getItem('gitmobile_pin') || '',
   pinRequired: false,
   status: null,
-  files: [],
-  history: []
+  remoteUrl: ''
 };
 
-// DOM Elements
+// DOM References
 const elements = {
   repoNameDisplay: document.getElementById('repoNameDisplay'),
+  repoOwnerDisplay: document.getElementById('repoOwnerDisplay'),
   branchName: document.getElementById('branchName'),
   syncStatusBadge: document.getElementById('syncStatusBadge'),
   refreshBtn: document.getElementById('refreshBtn'),
+  remoteBanner: document.getElementById('remoteBanner'),
+  remoteDot: document.getElementById('remoteDot'),
+  remoteStatusText: document.getElementById('remoteStatusText'),
+  openRemoteModalBtn: document.getElementById('openRemoteModalBtn'),
   behindCount: document.getElementById('behindCount'),
   aheadCount: document.getElementById('aheadCount'),
   pendingChangesCount: document.getElementById('pendingChangesCount'),
+  pendingCounterLabel: document.getElementById('pendingCounterLabel'),
   changesBadge: document.getElementById('changesBadge'),
   statusListContainer: document.getElementById('statusListContainer'),
   quickPapersList: document.getElementById('quickPapersList'),
@@ -29,10 +33,11 @@ const elements = {
   fileBreadcrumbs: document.getElementById('fileBreadcrumbs'),
   fileListContainer: document.getElementById('fileListContainer'),
   commitTimelineContainer: document.getElementById('commitTimelineContainer'),
+  historyCount: document.getElementById('historyCount'),
   consoleOutput: document.getElementById('consoleOutput'),
   toastContainer: document.getElementById('toastContainer'),
 
-  // Buttons
+  // Buttons & Inputs
   quickSyncBtn: document.getElementById('quickSyncBtn'),
   pullBtn: document.getElementById('pullBtn'),
   pushBtn: document.getElementById('pushBtn'),
@@ -47,6 +52,10 @@ const elements = {
   newNoteBtn: document.getElementById('newNoteBtn'),
   clearConsoleBtn: document.getElementById('clearConsoleBtn'),
 
+  // CLI Runner
+  customGitCmdInput: document.getElementById('customGitCmdInput'),
+  runCustomGitBtn: document.getElementById('runCustomGitBtn'),
+
   // Upload Form
   uploadForm: document.getElementById('uploadForm'),
   uploadFolderSelect: document.getElementById('uploadFolderSelect'),
@@ -56,6 +65,9 @@ const elements = {
   confirmUploadBtn: document.getElementById('confirmUploadBtn'),
 
   // Modals
+  remoteModal: document.getElementById('remoteModal'),
+  remoteUrlInput: document.getElementById('remoteUrlInput'),
+  saveRemoteBtn: document.getElementById('saveRemoteBtn'),
   commitModal: document.getElementById('commitModal'),
   uploadModal: document.getElementById('uploadModal'),
   fileViewerModal: document.getElementById('fileViewerModal'),
@@ -68,10 +80,7 @@ const elements = {
   pinErrorMsg: document.getElementById('pinErrorMsg')
 };
 
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
+// Utilities
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
@@ -79,9 +88,8 @@ function showToast(message, type = 'info') {
   elements.toastContainer.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateY(-10px)';
-    setTimeout(() => toast.remove(), 250);
-  }, 3200);
+    setTimeout(() => toast.remove(), 200);
+  }, 2800);
 }
 
 function logToConsole(message, type = 'info') {
@@ -100,166 +108,117 @@ async function apiRequest(endpoint, options = {}) {
   }
   
   try {
-    const res = await fetch(endpoint, {
-      ...options,
-      headers
-    });
-
+    const res = await fetch(endpoint, { ...options, headers });
     if (res.status === 401) {
       promptPinAuth();
-      throw new Error('Authentication required');
+      throw new Error('PIN Required');
     }
-
-    const data = await res.json();
-    return data;
+    return await res.json();
   } catch (err) {
     logToConsole(`Error (${endpoint}): ${err.message}`, 'error');
     throw err;
   }
 }
 
-// =============================================================================
 // Tab Switching
-// =============================================================================
-
 function switchTab(tabName) {
   state.currentTab = tabName;
+  document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
 
-  document.querySelectorAll('.tab-view').forEach(view => {
-    view.classList.remove('active');
-  });
-  document.querySelectorAll('.nav-item').forEach(item => {
-    item.classList.remove('active');
-  });
+  const view = document.getElementById(`view-${tabName}`);
+  const nav = document.querySelector(`.nav-item[data-tab="${tabName}"]`);
+  if (view) view.classList.add('active');
+  if (nav) nav.classList.add('active');
 
-  const activeView = document.getElementById(`view-${tabName}`);
-  const activeNav = document.querySelector(`.nav-item[data-tab="${tabName}"]`);
-
-  if (activeView) activeView.classList.add('active');
-  if (activeNav) activeNav.classList.add('active');
-
-  // Trigger contextual data reload
   if (tabName === 'files') loadFiles(state.currentFolder);
   if (tabName === 'history') loadHistory();
   if (tabName === 'dashboard') loadRepoStatus();
 }
 
 document.querySelectorAll('.bottom-nav .nav-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tab = btn.getAttribute('data-tab');
-    switchTab(tab);
-  });
+  btn.addEventListener('click', () => switchTab(btn.getAttribute('data-tab')));
 });
 
-// =============================================================================
 // Modals
-// =============================================================================
-
-function openModal(modal) {
-  modal.classList.add('active');
-}
-
+function openModal(modal) { modal.classList.add('active'); }
 function closeModals() {
   document.querySelectorAll('.modal').forEach(m => {
-    if (m.id !== 'pinModal' || !state.pinRequired) {
-      m.classList.remove('active');
-    }
+    if (m.id !== 'pinModal' || !state.pinRequired) m.classList.remove('active');
   });
 }
-
 function openUploadModal() {
   elements.uploadFolderSelect.value = state.currentFolder || 'papers';
   openModal(elements.uploadModal);
 }
 
-// =============================================================================
-// PIN Authentication Flow
-// =============================================================================
-
-async function checkConfig() {
+// Config & Remote
+async function initApp() {
   try {
-    const res = await fetch('/api/config-info');
-    const info = await res.json();
+    const info = await (await fetch('/api/config-info')).json();
     state.pinRequired = info.pinRequired;
-    elements.repoNameDisplay.textContent = info.repoName || 'Repository';
+    elements.repoNameDisplay.textContent = info.repoName || 'repository';
 
-    if (info.pinRequired) {
-      if (!state.authPin) {
-        promptPinAuth();
-      } else {
-        // Validate saved PIN
-        verifySavedPin();
-      }
-    } else {
-      loadRepoStatus();
-      loadQuickPapers();
-    }
-  } catch (err) {
-    logToConsole('Could not fetch bridge configuration', 'error');
-  }
-}
-
-function promptPinAuth() {
-  elements.pinModal.classList.add('active');
-  elements.pinInput.focus();
-}
-
-async function verifySavedPin() {
-  try {
-    const res = await fetch('/api/verify-pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: state.authPin })
-    });
-    const data = await res.json();
-    if (data.success) {
-      elements.pinModal.classList.remove('active');
-      loadRepoStatus();
-      loadQuickPapers();
-    } else {
+    if (info.pinRequired && !state.authPin) {
       promptPinAuth();
+    } else {
+      await loadRemoteInfo();
+      await loadRepoStatus();
+      await loadQuickPapers();
     }
-  } catch (_) {
-    promptPinAuth();
+  } catch (err) {
+    logToConsole('Bridge initialization failed: ' + err.message, 'error');
   }
 }
 
-elements.submitPinBtn.addEventListener('click', async () => {
-  const pin = elements.pinInput.value.trim();
-  if (!pin) return;
+async function loadRemoteInfo() {
+  try {
+    const res = await apiRequest('/api/remote');
+    state.remoteUrl = res.remoteUrl || '';
+    if (state.remoteUrl) {
+      elements.remoteDot.classList.add('linked');
+      elements.remoteStatusText.textContent = `Remote: ${state.remoteUrl}`;
+      elements.openRemoteModalBtn.textContent = 'Change';
+      elements.remoteUrlInput.value = state.remoteUrl;
+    } else {
+      elements.remoteDot.classList.remove('linked');
+      elements.remoteStatusText.textContent = 'Remote: None (Click to link)';
+      elements.openRemoteModalBtn.textContent = 'Link Remote';
+    }
+  } catch (_) {}
+}
+
+elements.openRemoteModalBtn.addEventListener('click', () => {
+  openModal(elements.remoteModal);
+});
+
+elements.saveRemoteBtn.addEventListener('click', async () => {
+  const url = elements.remoteUrlInput.value.trim();
+  if (!url) return;
 
   try {
-    const res = await fetch('/api/verify-pin', {
+    const res = await apiRequest('/api/remote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin })
+      body: JSON.stringify({ url })
     });
-    const data = await res.json();
-
-    if (data.success) {
-      state.authPin = pin;
-      localStorage.setItem('gitmobile_pin', pin);
-      elements.pinModal.classList.remove('active');
-      elements.pinErrorMsg.textContent = '';
-      showToast('Unlocked successfully', 'success');
+    if (res.success) {
+      showToast('Remote updated', 'success');
+      logToConsole(`Set remote origin: ${url}`, 'success');
+      closeModals();
+      loadRemoteInfo();
       loadRepoStatus();
-      loadQuickPapers();
-    } else {
-      elements.pinErrorMsg.textContent = 'Incorrect PIN';
     }
   } catch (err) {
-    elements.pinErrorMsg.textContent = 'Connection error';
+    showToast('Failed to set remote: ' + err.message, 'error');
   }
 });
 
-// =============================================================================
 // Repository Status & Dashboard
-// =============================================================================
-
 async function loadRepoStatus() {
   try {
     elements.refreshBtn.style.transform = 'rotate(180deg)';
-    setTimeout(() => elements.refreshBtn.style.transform = 'none', 300);
+    setTimeout(() => elements.refreshBtn.style.transform = 'none', 250);
 
     const data = await apiRequest('/api/status');
     if (!data.success) return;
@@ -267,83 +226,68 @@ async function loadRepoStatus() {
     state.status = data.status;
     const s = data.status;
 
-    // Header info
     elements.branchName.textContent = s.branch;
-    
+
     if (s.isClean) {
       elements.syncStatusBadge.textContent = 'Clean';
-      elements.syncStatusBadge.className = 'status-badge clean';
+      elements.syncStatusBadge.className = 'state-pill clean';
       elements.changesBadge.textContent = 'Clean';
-      elements.changesBadge.className = 'badge';
+      elements.changesBadge.className = 'state-pill clean';
     } else {
-      const totalChanges = s.counts.modified + s.counts.staged + s.counts.untracked;
-      elements.syncStatusBadge.textContent = `${totalChanges} Unsaved`;
-      elements.syncStatusBadge.className = 'status-badge dirty';
-      elements.changesBadge.textContent = `${totalChanges} changes`;
-      elements.changesBadge.className = 'badge badge-accent';
+      const total = s.counts.modified + s.counts.staged + s.counts.untracked;
+      elements.syncStatusBadge.textContent = `${total} Unsaved`;
+      elements.syncStatusBadge.className = 'state-pill dirty';
+      elements.changesBadge.textContent = `${total} changes`;
+      elements.changesBadge.className = 'state-pill dirty';
     }
 
-    // Counters
-    elements.behindCount.textContent = `${s.behind} behind`;
-    elements.aheadCount.textContent = `${s.ahead} ahead`;
-    
+    elements.behindCount.textContent = s.behind;
+    elements.aheadCount.textContent = s.ahead;
     const totalPending = s.counts.modified + s.counts.staged + s.counts.untracked;
-    elements.pendingChangesCount.textContent = `${totalPending} changes`;
+    elements.pendingChangesCount.textContent = totalPending;
+    elements.pendingCounterLabel.textContent = `${totalPending} changes`;
 
-    // Render Working Tree list
-    renderWorkingTree(s.files, s.isClean);
-  } catch (err) {
-    elements.syncStatusBadge.textContent = 'Offline / Error';
+    renderStatusList(s.files, s.isClean);
+  } catch (_) {
+    elements.syncStatusBadge.textContent = 'Error';
   }
 }
 
-function renderWorkingTree(files, isClean) {
+function renderStatusList(files, isClean) {
   elements.statusListContainer.innerHTML = '';
-
   if (isClean) {
-    elements.statusListContainer.innerHTML = `
-      <div class="empty-state">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        <p>Working tree clean. All changes committed.</p>
-      </div>
-    `;
+    elements.statusListContainer.innerHTML = '<div class="empty-state">Working tree clean. Nothing to commit.</div>';
     return;
   }
 
-  // Staged files
   files.staged.forEach(f => {
-    const item = document.createElement('div');
-    item.className = 'status-item';
-    item.innerHTML = `<span>${f.file}</span><span class="status-code A">STAGED</span>`;
-    elements.statusListContainer.appendChild(item);
+    const row = document.createElement('div');
+    row.className = 'status-row';
+    row.innerHTML = `<span>${f.file}</span><span class="status-tag A">staged</span>`;
+    elements.statusListContainer.appendChild(row);
   });
 
-  // Modified files
   files.modified.forEach(f => {
-    const item = document.createElement('div');
-    item.className = 'status-item';
-    item.innerHTML = `<span>${f.file}</span><span class="status-code M">MODIFIED</span>`;
-    elements.statusListContainer.appendChild(item);
+    const row = document.createElement('div');
+    row.className = 'status-row';
+    row.innerHTML = `<span>${f.file}</span><span class="status-tag M">modified</span>`;
+    elements.statusListContainer.appendChild(row);
   });
 
-  // Untracked files
   files.untracked.forEach(f => {
-    const item = document.createElement('div');
-    item.className = 'status-item';
-    item.innerHTML = `<span>${f}</span><span class="status-code U">UNTRACKED</span>`;
-    elements.statusListContainer.appendChild(item);
+    const row = document.createElement('div');
+    row.className = 'status-row';
+    row.innerHTML = `<span>${f}</span><span class="status-tag U">untracked</span>`;
+    elements.statusListContainer.appendChild(row);
   });
 }
 
-// =============================================================================
-// Git Operations: Sync, Pull, Push, Commit
-// =============================================================================
-
+// Git Actions
 elements.quickSyncBtn.addEventListener('click', async () => {
   try {
     elements.quickSyncBtn.disabled = true;
     elements.quickSyncBtn.textContent = 'Syncing...';
-    logToConsole('Starting One-Tap Quick Sync...', 'info');
+    logToConsole('Running One-Click Sync...', 'info');
 
     const res = await apiRequest('/api/sync', {
       method: 'POST',
@@ -351,32 +295,25 @@ elements.quickSyncBtn.addEventListener('click', async () => {
       body: JSON.stringify({ message: '' })
     });
 
-    if (res.logs) {
-      res.logs.forEach(l => logToConsole(l, 'success'));
-    }
-    showToast('Sync complete!', 'success');
+    if (res.logs) res.logs.forEach(l => logToConsole(l, 'success'));
+    showToast('Repository synced', 'success');
     loadRepoStatus();
     loadQuickPapers();
   } catch (err) {
-    showToast('Sync error: ' + (err.message || 'Failed'), 'error');
+    showToast('Sync error: ' + err.message, 'error');
   } finally {
     elements.quickSyncBtn.disabled = false;
-    elements.quickSyncBtn.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-      </svg>
-      Sync Repository
-    `;
+    elements.quickSyncBtn.textContent = 'Sync Repository';
   }
 });
 
 elements.pullBtn.addEventListener('click', async () => {
   try {
     logToConsole('Executing git pull...', 'info');
-    showToast('Pulling changes...', 'info');
+    showToast('Pulling...', 'info');
     const res = await apiRequest('/api/pull', { method: 'POST' });
-    logToConsole(res.result.stdout || 'Up to date.', 'success');
-    showToast('Pull finished', 'success');
+    logToConsole(res.result.stdout || 'Already up to date.', 'success');
+    showToast('Pull complete', 'success');
     loadRepoStatus();
   } catch (err) {
     showToast('Pull failed: ' + err.message, 'error');
@@ -386,10 +323,10 @@ elements.pullBtn.addEventListener('click', async () => {
 elements.pushBtn.addEventListener('click', async () => {
   try {
     logToConsole('Executing git push...', 'info');
-    showToast('Pushing commits...', 'info');
+    showToast('Pushing...', 'info');
     const res = await apiRequest('/api/push', { method: 'POST' });
     logToConsole(res.result.stdout || 'Push completed.', 'success');
-    showToast('Push finished', 'success');
+    showToast('Push complete', 'success');
     loadRepoStatus();
   } catch (err) {
     showToast('Push failed: ' + err.message, 'error');
@@ -404,62 +341,84 @@ elements.openCommitModalBtn.addEventListener('click', () => {
 elements.confirmCommitBtn.addEventListener('click', async () => {
   const message = elements.commitMessageInput.value.trim();
   if (!message) {
-    showToast('Please enter a commit message', 'error');
+    showToast('Commit message required', 'error');
     return;
   }
-
   try {
-    logToConsole(`Committing changes: "${message}"...`, 'info');
     const res = await apiRequest('/api/commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
     });
     logToConsole(res.result.stdout, 'success');
-    showToast('Committed successfully', 'success');
+    showToast('Committed', 'success');
     closeModals();
     loadRepoStatus();
   } catch (err) {
-    showToast('Commit failed: ' + err.message, 'error');
+    showToast('Commit error: ' + err.message, 'error');
   }
 });
 
-// =============================================================================
-// Files & Research Papers
-// =============================================================================
+// Custom Git Command Runner (CLI)
+function fillGitCmd(cmd) {
+  elements.customGitCmdInput.value = cmd;
+  elements.customGitCmdInput.focus();
+}
 
+async function runCustomGitCommand() {
+  const cmd = elements.customGitCmdInput.value.trim();
+  if (!cmd) return;
+
+  try {
+    logToConsole(`$ git ${cmd}`, 'info');
+    const res = await apiRequest('/api/exec', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd })
+    });
+
+    if (res.result.stdout) logToConsole(res.result.stdout, 'success');
+    if (res.result.stderr) logToConsole(res.result.stderr, 'warn');
+    loadRepoStatus();
+  } catch (err) {
+    logToConsole(err.message, 'error');
+    showToast('Command failed', 'error');
+  }
+}
+
+elements.runCustomGitBtn.addEventListener('click', runCustomGitCommand);
+elements.customGitCmdInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') runCustomGitCommand();
+});
+
+// Files & Upload
 async function loadQuickPapers() {
   try {
     const res = await apiRequest('/api/files?folder=papers');
     if (!res.success) return;
 
-    elements.papersCount.textContent = `${res.files.length} items`;
+    elements.papersCount.textContent = res.files.length;
     elements.quickPapersList.innerHTML = '';
 
     if (res.files.length === 0) {
-      elements.quickPapersList.innerHTML = '<p class="subtext">No papers uploaded yet.</p>';
+      elements.quickPapersList.innerHTML = '<div class="empty-state">No research papers in papers/</div>';
       return;
     }
 
     res.files.forEach(f => {
-      const card = document.createElement('div');
-      card.className = 'paper-card';
-      const isPdf = f.name.endsWith('.pdf');
-      card.innerHTML = `
-        <div class="paper-title">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${isPdf ? '#ef4444' : '#6366f1'}" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-          </svg>
+      const row = document.createElement('div');
+      row.className = 'table-row';
+      row.innerHTML = `
+        <div class="table-row-main">
+          <span>📄</span>
           <span>${f.name}</span>
         </div>
-        <span class="file-size">${formatBytes(f.size)}</span>
+        <span class="table-row-meta">${formatBytes(f.size)}</span>
       `;
-      card.addEventListener('click', () => {
-        if (f.name.endsWith('.md') || f.name.endsWith('.txt')) {
-          viewFile(f.path);
-        }
-      });
-      elements.quickPapersList.appendChild(card);
+      row.onclick = () => {
+        if (f.name.endsWith('.md') || f.name.endsWith('.txt')) viewFile(f.path);
+      };
+      elements.quickPapersList.appendChild(row);
     });
   } catch (_) {}
 }
@@ -469,250 +428,196 @@ async function loadFiles(folder = '') {
   renderBreadcrumbs(folder);
 
   try {
-    elements.fileListContainer.innerHTML = '<div class="loading-spinner">Loading files...</div>';
+    elements.fileListContainer.innerHTML = '<div class="empty-state">Loading tree...</div>';
     const res = await apiRequest(`/api/files?folder=${encodeURIComponent(folder)}`);
     if (!res.success) return;
 
     elements.fileListContainer.innerHTML = '';
     if (res.files.length === 0) {
-      elements.fileListContainer.innerHTML = '<div class="empty-state"><p>Folder is empty.</p></div>';
+      elements.fileListContainer.innerHTML = '<div class="empty-state">Folder is empty.</div>';
       return;
     }
 
     res.files.forEach(item => {
       const row = document.createElement('div');
-      row.className = 'file-row';
-
-      const iconSvg = item.isDirectory
-        ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
-        : item.name.endsWith('.pdf')
-          ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-          : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
-
+      row.className = 'table-row';
       row.innerHTML = `
-        <div class="file-main">
-          <div class="file-icon">${iconSvg}</div>
-          <span class="file-name">${item.name}</span>
+        <div class="table-row-main">
+          <span>${item.isDirectory ? '📁' : '📄'}</span>
+          <span>${item.name}</span>
         </div>
-        <span class="file-size">${item.isDirectory ? 'folder' : formatBytes(item.size)}</span>
+        <span class="table-row-meta">${item.isDirectory ? 'dir' : formatBytes(item.size)}</span>
       `;
-
-      row.addEventListener('click', () => {
-        if (item.isDirectory) {
-          loadFiles(item.path);
-        } else {
-          viewFile(item.path);
-        }
-      });
-
+      row.onclick = () => {
+        if (item.isDirectory) loadFiles(item.path);
+        else viewFile(item.path);
+      };
       elements.fileListContainer.appendChild(row);
     });
-  } catch (err) {
-    elements.fileListContainer.innerHTML = '<div class="empty-state"><p>Could not load files.</p></div>';
-  }
+  } catch (_) {}
 }
 
 function renderBreadcrumbs(folder) {
   elements.fileBreadcrumbs.innerHTML = '';
-  const rootSpan = document.createElement('span');
-  rootSpan.className = `crumb ${folder === '' ? 'active' : ''}`;
-  rootSpan.textContent = 'root';
-  rootSpan.onclick = () => loadFiles('');
-  elements.fileBreadcrumbs.appendChild(rootSpan);
+  const root = document.createElement('span');
+  root.className = `crumb ${folder === '' ? 'active' : ''}`;
+  root.textContent = 'root';
+  root.onclick = () => loadFiles('');
+  elements.fileBreadcrumbs.appendChild(root);
 
   if (!folder) return;
-
   const parts = folder.split('/');
-  let accumulated = '';
-
-  parts.forEach((p, index) => {
-    accumulated += (accumulated ? '/' : '') + p;
+  let pathAcc = '';
+  parts.forEach((p, idx) => {
+    pathAcc += (pathAcc ? '/' : '') + p;
     const sep = document.createElement('span');
-    sep.textContent = '/';
-    sep.style.color = 'var(--text-muted)';
+    sep.textContent = ' / ';
+    sep.style.color = 'var(--fg-subtle)';
     elements.fileBreadcrumbs.appendChild(sep);
 
     const crumb = document.createElement('span');
-    const isLast = index === parts.length - 1;
-    crumb.className = `crumb ${isLast ? 'active' : ''}`;
+    crumb.className = `crumb ${idx === parts.length - 1 ? 'active' : ''}`;
     crumb.textContent = p;
-    const thisPath = accumulated;
-    if (!isLast) crumb.onclick = () => loadFiles(thisPath);
+    const target = pathAcc;
+    crumb.onclick = () => loadFiles(target);
     elements.fileBreadcrumbs.appendChild(crumb);
   });
 }
 
-async function viewFile(filePath) {
+async function viewFile(path) {
   try {
-    const res = await apiRequest(`/api/file?path=${encodeURIComponent(filePath)}`);
-    if (!res.success) return;
-
-    elements.viewerFileName.textContent = filePath;
+    const res = await apiRequest(`/api/file?path=${encodeURIComponent(path)}`);
+    elements.viewerFileName.textContent = path;
     elements.viewerFileContent.textContent = res.content;
     elements.openInEditorBtn.onclick = () => {
-      elements.notePathInput.value = filePath;
+      elements.notePathInput.value = path;
       elements.noteContentArea.value = res.content;
       closeModals();
       switchTab('notes');
     };
     openModal(elements.fileViewerModal);
-  } catch (err) {
-    showToast('Cannot preview binary file directly', 'info');
+  } catch (_) {
+    showToast('Binary preview not supported', 'info');
   }
 }
 
-// File Upload Handler
+// Upload
 elements.paperFileInput.addEventListener('change', () => {
   if (elements.paperFileInput.files.length > 0) {
     elements.selectedFileName.textContent = elements.paperFileInput.files[0].name;
   }
 });
-
 elements.openUploadModalBtn.addEventListener('click', openUploadModal);
 
 elements.confirmUploadBtn.addEventListener('click', async (e) => {
   e.preventDefault();
   const file = elements.paperFileInput.files[0];
-  if (!file) {
-    showToast('Please choose a file', 'error');
-    return;
-  }
+  if (!file) return showToast('Select a file', 'error');
 
   const folder = elements.uploadFolderSelect.value;
-  const autoCommit = elements.uploadAutoCommit.checked;
-
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('autoCommit', autoCommit ? 'true' : 'false');
-  formData.append('commitMessage', `feat: add document ${file.name}`);
+  formData.append('autoCommit', elements.uploadAutoCommit.checked ? 'true' : 'false');
+  formData.append('commitMessage', `feat: add ${file.name}`);
 
   try {
     elements.confirmUploadBtn.disabled = true;
-    elements.confirmUploadBtn.textContent = 'Uploading...';
-    logToConsole(`Uploading ${file.name} to ${folder}/...`, 'info');
-
     const headers = {};
     if (state.authPin) headers['x-gitmobile-pin'] = state.authPin;
 
-    const res = await fetch(`/api/upload?folder=${encodeURIComponent(folder)}`, {
+    const res = await (await fetch(`/api/upload?folder=${encodeURIComponent(folder)}`, {
       method: 'POST',
       headers,
       body: formData
-    });
+    })).json();
 
-    const data = await res.json();
-    if (data.success) {
-      showToast(`Uploaded ${data.filename}`, 'success');
-      logToConsole(`Saved file: ${data.path}`, 'success');
+    if (res.success) {
+      showToast(`Uploaded ${res.filename}`, 'success');
+      logToConsole(`Uploaded: ${res.path}`, 'success');
       closeModals();
       loadFiles(folder);
       loadQuickPapers();
       loadRepoStatus();
-    } else {
-      showToast('Upload failed: ' + data.error, 'error');
     }
   } catch (err) {
-    showToast('Upload failed: ' + err.message, 'error');
+    showToast('Upload error', 'error');
   } finally {
     elements.confirmUploadBtn.disabled = false;
-    elements.confirmUploadBtn.textContent = 'Upload to Repo';
   }
 });
 
-// =============================================================================
-// Notes Editor
-// =============================================================================
-
+// Notes
 elements.newNoteBtn.addEventListener('click', () => {
-  const timestamp = new Date().toISOString().slice(0, 10);
-  elements.notePathInput.value = `notes/note-${timestamp}.md`;
-  elements.noteContentArea.value = `# Research Note - ${timestamp}\n\n## Abstract\n\n## Insights & Takeaways\n- \n`;
+  const d = new Date().toISOString().slice(0, 10);
+  elements.notePathInput.value = `notes/note-${d}.md`;
+  elements.noteContentArea.value = `# Note: ${d}\n\n- Summary:\n`;
   elements.noteContentArea.focus();
 });
 
 elements.saveNoteBtn.addEventListener('click', async () => {
   const filePath = elements.notePathInput.value.trim();
   const content = elements.noteContentArea.value;
-  const autoCommit = elements.noteAutoCommit.checked;
-
-  if (!filePath) {
-    showToast('Specify a file path', 'error');
-    return;
-  }
+  if (!filePath) return showToast('File path required', 'error');
 
   try {
-    logToConsole(`Saving note: ${filePath}...`, 'info');
     const res = await apiRequest('/api/note', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         filePath,
         content,
-        autoCommit,
-        commitMessage: `docs: update research note ${filePath}`
+        autoCommit: elements.noteAutoCommit.checked,
+        commitMessage: `docs: update note ${filePath}`
       })
     });
-
     if (res.success) {
-      showToast('Note saved & staged!', 'success');
-      logToConsole(`Saved note ${filePath}`, 'success');
+      showToast('Note saved & committed', 'success');
+      logToConsole(`Saved note: ${filePath}`, 'success');
       loadRepoStatus();
     }
   } catch (err) {
-    showToast('Save failed: ' + err.message, 'error');
+    showToast('Save failed', 'error');
   }
 });
 
-// =============================================================================
-// Commit History Timeline
-// =============================================================================
-
+// History
 async function loadHistory() {
   try {
-    elements.commitTimelineContainer.innerHTML = '<div class="loading-spinner">Loading timeline...</div>';
-    const res = await apiRequest('/api/history?count=20');
+    const res = await apiRequest('/api/history?count=25');
     if (!res.success) return;
 
+    elements.historyCount.textContent = res.history.length;
     elements.commitTimelineContainer.innerHTML = '';
+
     if (res.history.length === 0) {
-      elements.commitTimelineContainer.innerHTML = '<div class="empty-state"><p>No commit history found.</p></div>';
+      elements.commitTimelineContainer.innerHTML = '<div class="empty-state">No commits yet.</div>';
       return;
     }
 
-    res.history.forEach(item => {
-      const el = document.createElement('div');
-      el.className = 'timeline-item';
-      el.innerHTML = `
-        <div class="timeline-bullet"></div>
-        <div class="timeline-card">
-          <div class="timeline-subject">${escapeHtml(item.subject)}</div>
-          <div class="timeline-meta">
-            <span class="commit-hash">${item.shortHash}</span>
-            <span>by ${escapeHtml(item.author)}</span>
-            <span>• ${item.relativeDate}</span>
-          </div>
+    res.history.forEach(c => {
+      const row = document.createElement('div');
+      row.className = 'table-row';
+      row.innerHTML = `
+        <div class="table-row-main">
+          <strong>${c.subject}</strong>
+        </div>
+        <div class="table-row-meta">
+          <code>${c.shortHash}</code> • ${c.relativeDate}
         </div>
       `;
-      elements.commitTimelineContainer.appendChild(el);
+      elements.commitTimelineContainer.appendChild(row);
     });
-  } catch (err) {
-    elements.commitTimelineContainer.innerHTML = '<div class="empty-state"><p>Could not load history.</p></div>';
-  }
+  } catch (_) {}
 }
-
-// =============================================================================
-// Console & Utilities
-// =============================================================================
 
 elements.clearConsoleBtn.addEventListener('click', () => {
   elements.consoleOutput.innerHTML = '';
-  logToConsole('Console cleared.', 'info');
 });
-
 elements.refreshBtn.addEventListener('click', () => {
   loadRepoStatus();
   loadQuickPapers();
-  showToast('Refreshed status', 'info');
+  loadRemoteInfo();
+  showToast('Refreshed', 'info');
 });
 
 function formatBytes(bytes) {
@@ -723,12 +628,4 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// Initialize on page load
-window.addEventListener('DOMContentLoaded', () => {
-  checkConfig();
-});
+window.addEventListener('DOMContentLoaded', initApp);
