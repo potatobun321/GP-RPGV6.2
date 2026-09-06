@@ -1,0 +1,259 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const cors = require('cors');
+const multer = require('multer');
+const gitOps = require('./git-ops');
+
+const app = express();
+
+// Path configurations
+const REPO_ROOT = path.resolve(__dirname, '../../');
+const CONFIG_FILE = path.resolve(__dirname, '../config.json');
+const WEB_DIR = path.resolve(__dirname, '../web');
+
+// Read config if present
+let config = {
+  port: 3000,
+  pin: '', // blank means no PIN required
+  host: '127.0.0.1'
+};
+
+if (fs.existsSync(CONFIG_FILE)) {
+  try {
+    const loaded = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    config = { ...config, ...loaded };
+  } catch (err) {
+    console.warn('[Config] Failed to parse config.json, using defaults:', err.message);
+  }
+}
+
+const PORT = process.env.PORT || config.port || 3000;
+const HOST = process.env.HOST || config.host || '127.0.0.1';
+
+// Setup file upload handling with multer
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const targetFolder = req.query.folder || 'papers';
+    const safeDest = path.resolve(REPO_ROOT, targetFolder);
+    
+    // Security check: ensure within repo
+    if (!safeDest.startsWith(REPO_ROOT)) {
+      return cb(new Error('Invalid destination folder'));
+    }
+    
+    if (!fs.existsSync(safeDest)) {
+      fs.mkdirSync(safeDest, { recursive: true });
+    }
+    cb(null, safeDest);
+  },
+  filename: function (req, file, cb) {
+    // Sanitize filename
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, safeName);
+  }
+});
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// PIN Authentication Middleware
+const authMiddleware = (req, res, next) => {
+  if (!config.pin) {
+    return next(); // No PIN configured
+  }
+
+  const clientPin = req.headers['x-gitmobile-pin'] || req.query.pin;
+  if (clientPin === config.pin) {
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Unauthorized: Invalid or missing PIN' });
+};
+
+// API: Config Info (Public)
+app.get('/api/config-info', (req, res) => {
+  res.json({
+    repoName: path.basename(REPO_ROOT),
+    pinRequired: Boolean(config.pin),
+    host: HOST,
+    port: PORT
+  });
+});
+
+// API: Verify PIN
+app.post('/api/verify-pin', (req, res) => {
+  const { pin } = req.body;
+  if (!config.pin || pin === config.pin) {
+    return res.json({ success: true, message: 'Authentication successful' });
+  }
+  return res.status(401).json({ success: false, error: 'Invalid PIN' });
+});
+
+// Apply auth to all subsequent /api routes
+app.use('/api', authMiddleware);
+
+// API: Repository Status
+app.get('/api/status', async (req, res) => {
+  try {
+    const status = await gitOps.getRepoStatus(REPO_ROOT);
+    res.json({ success: true, repoName: path.basename(REPO_ROOT), status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message || err });
+  }
+});
+
+// API: Pull Latest
+app.post('/api/pull', async (req, res) => {
+  try {
+    const result = await gitOps.pullRepo(REPO_ROOT);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.stderr || err.message || err });
+  }
+});
+
+// API: Push Latest
+app.post('/api/push', async (req, res) => {
+  try {
+    const result = await gitOps.pushRepo(REPO_ROOT);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.stderr || err.message || err });
+  }
+});
+
+// API: Commit Changes
+app.post('/api/commit', async (req, res) => {
+  try {
+    const { message, files } = req.body;
+    const result = await gitOps.commitRepo(REPO_ROOT, message, files);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.stderr || err.message || err });
+  }
+});
+
+// API: Quick Sync (Pull -> Commit -> Push)
+app.post('/api/sync', async (req, res) => {
+  try {
+    const { message } = req.body;
+    const result = await gitOps.syncWorkflow(REPO_ROOT, message);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message || err });
+  }
+});
+
+// API: Commit History
+app.get('/api/history', async (req, res) => {
+  try {
+    const count = parseInt(req.query.count, 10) || 20;
+    const history = await gitOps.getHistory(REPO_ROOT, count);
+    res.json({ success: true, history });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message || err });
+  }
+});
+
+// API: Browse Files
+app.get('/api/files', (req, res) => {
+  try {
+    const folder = req.query.folder || '';
+    const files = gitOps.listRepositoryFiles(REPO_ROOT, folder);
+    res.json({ success: true, files, currentFolder: folder });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// API: Read Text File
+app.get('/api/file', (req, res) => {
+  try {
+    const filePath = req.query.path;
+    if (!filePath) {
+      return res.status(400).json({ error: 'File path is required' });
+    }
+    const content = gitOps.readSafeFile(REPO_ROOT, filePath);
+    res.json({ success: true, path: filePath, content });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// API: Save or Update Markdown Note / Text File
+app.post('/api/note', async (req, res) => {
+  try {
+    const { filePath, content, autoCommit, commitMessage } = req.body;
+    if (!filePath || typeof content !== 'string') {
+      return res.status(400).json({ error: 'filePath and content are required' });
+    }
+
+    gitOps.writeSafeFile(REPO_ROOT, filePath, content);
+
+    let gitResult = null;
+    if (autoCommit) {
+      const msg = commitMessage || `docs: update note ${path.basename(filePath)}`;
+      gitResult = await gitOps.commitRepo(REPO_ROOT, msg, [filePath]);
+    }
+
+    res.json({ success: true, path: filePath, gitResult });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message || err });
+  }
+});
+
+// API: Upload Paper or File
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const relPath = path.relative(REPO_ROOT, req.file.path).replace(/\\/g, '/');
+    let gitResult = null;
+
+    if (req.body.autoCommit === 'true') {
+      const msg = req.body.commitMessage || `feat: add document ${req.file.filename}`;
+      gitResult = await gitOps.commitRepo(REPO_ROOT, msg, [relPath]);
+    }
+
+    res.json({
+      success: true,
+      filename: req.file.filename,
+      path: relPath,
+      size: req.file.size,
+      gitResult
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message || err });
+  }
+});
+
+// Serve static frontend
+app.use(express.static(WEB_DIR));
+
+// Fallback to index.html for SPA routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(WEB_DIR, 'index.html'));
+});
+
+// Start listening
+app.listen(PORT, HOST, () => {
+  console.log('====================================================');
+  console.log('  .gitmobile - Mobile Git Bridge Active');
+  console.log(`  Repository: ${REPO_ROOT}`);
+  console.log(`  Local URL : http://${HOST}:${PORT}`);
+  console.log(`  PIN Auth  : ${config.pin ? 'ENABLED' : 'DISABLED (Open)'}`);
+  console.log('====================================================');
+  console.log('To connect from mobile via Termux:');
+  console.log(`  ssh -N -L ${PORT}:${HOST}:${PORT} <user>@<this-machine-ip>`);
+  console.log(`  Then open http://localhost:${PORT} in your phone's browser.`);
+  console.log('====================================================');
+});

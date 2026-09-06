@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>.gitmobile - Mobile Git Bridge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="18" r="3"/>
+          <circle cx="6" cy="6" r="3"/>
+          <circle cx="18" cy="6" r="3"/>
+          <path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/>
+          <path d="M12 12v3"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="repo-title" id="repoNameDisplay">Repository</h1>
+        <div class="repo-meta">
+          <span class="branch-badge" id="branchBadge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span id="branchName">...</span>
+          </span>
+          <span class="status-badge" id="syncStatusBadge">Checking...</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="refreshBtn" title="Refresh Status">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main View Container -->
+  <main class="app-content">
+    
+    <!-- TAB 1: DASHBOARD -->
+    <section id="view-dashboard" class="tab-view active">
+      <!-- Quick Sync Action Hero Card -->
+      <div class="hero-card">
+        <div class="hero-content">
+          <span class="hero-tag">ONE-TAP WORKFLOW</span>
+          <h2>Mobile Quick Sync</h2>
+          <p>Pulls latest remote commits, auto-stages all edits, and pushes safely.</p>
+        </div>
+        <button class="btn btn-primary btn-large sync-btn" id="quickSyncBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          Sync Repository
+        </button>
+      </div>
+
+      <!-- Quick Action Buttons Grid -->
+      <div class="actions-grid">
+        <button class="action-tile" id="pullBtn">
+          <div class="tile-icon icon-pull">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+          </div>
+          <div class="tile-info">
+            <span class="tile-title">Pull Latest</span>
+            <span class="tile-sub" id="behindCount">0 behind</span>
+          </div>
+        </button>
+
+        <button class="action-tile" id="pushBtn">
+          <div class="tile-icon icon-push">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </div>
+          <div class="tile-info">
+            <span class="tile-title">Push Commits</span>
+            <span class="tile-sub" id="aheadCount">0 ahead</span>
+          </div>
+        </button>
+
+        <button class="action-tile" id="openCommitModalBtn">
+          <div class="tile-icon icon-commit">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/>
+            </svg>
+          </div>
+          <div class="tile-info">
+            <span class="tile-title">Commit</span>
+            <span class="tile-sub" id="pendingChangesCount">0 changes</span>
+          </div>
+        </button>
+
+        <button class="action-tile" id="openUploadModalBtn">
+          <div class="tile-icon icon-upload">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+          </div>
+          <div class="tile-info">
+            <span class="tile-title">Add Paper</span>
+            <span class="tile-sub">Upload PDF / doc</span>
+          </div>
+        </button>
+      </div>
+
+      <!-- Working Tree Changes Drawer -->
+      <div class="card section-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Working Tree Status</h3>
+            <span class="badge" id="changesBadge">Clean</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="statusListContainer" class="status-list">
+            <div class="empty-state">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <p>Working tree clean. All changes committed.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Research Overview -->
+      <div class="card section-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Research Papers</h3>
+            <span class="badge badge-accent" id="papersCount">0 PDFs</span>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="switchTab('files')">Browse All</button>
+        </div>
+        <div class="card-body">
+          <div id="quickPapersList" class="papers-mini-list">
+            <div class="loading-spinner">Loading repository papers...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: FILES & PAPERS -->
+    <section id="view-files" class="tab-view">
+      <div class="section-toolbar">
+        <div class="folder-breadcrumbs" id="fileBreadcrumbs">
+          <span class="crumb active" onclick="navigateToFolder('')">root</span>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="openUploadModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Upload
+        </button>
+      </div>
+
+      <div class="card file-list-card">
+        <div class="file-list" id="fileListContainer">
+          <div class="loading-spinner">Loading files...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: NOTES EDITOR -->
+    <section id="view-notes" class="tab-view">
+      <div class="notes-header">
+        <div>
+          <h2>Research Notes</h2>
+          <p class="subtext">Jot down reading notes or ideas and sync directly to git.</p>
+        </div>
+        <button class="btn btn-sm btn-primary" id="newNoteBtn">+ New Note</button>
+      </div>
+
+      <div class="note-editor-card card">
+        <div class="editor-meta">
+          <input type="text" id="notePathInput" class="input" placeholder="File path (e.g. notes/my-reading-note.md)" value="notes/quick-note.md">
+          <div class="note-auto-commit">
+            <label class="checkbox-label">
+              <input type="checkbox" id="noteAutoCommit" checked>
+              <span>Auto-commit on save</span>
+            </label>
+          </div>
+        </div>
+
+        <textarea id="noteContentArea" class="textarea" rows="12" placeholder="Write markdown thoughts, paper abstracts, math formulas..."></textarea>
+
+        <div class="editor-footer">
+          <span class="editor-hint">Saves directly to repository</span>
+          <button class="btn btn-primary" id="saveNoteBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save Note
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: HISTORY -->
+    <section id="view-history" class="tab-view">
+      <div class="section-title-wrap">
+        <h2>Commit Timeline</h2>
+        <p class="subtext">Recent commits and sync operations</p>
+      </div>
+      <div class="timeline" id="commitTimelineContainer">
+        <div class="loading-spinner">Loading commit log...</div>
+      </div>
+    </section>
+
+    <!-- TAB 5: CONSOLE -->
+    <section id="view-console" class="tab-view">
+      <div class="section-toolbar">
+        <div>
+          <h2>Git Activity Console</h2>
+          <p class="subtext">Real-time command executions and outputs</p>
+        </div>
+        <button class="btn btn-sm btn-ghost" id="clearConsoleBtn">Clear</button>
+      </div>
+      <div class="console-box" id="consoleOutput">
+        <div class="console-line info">[System] .gitmobile client initialized. Ready.</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom Navigation Bar (Mobile Ergonomics) -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-tab="dashboard">
+      <div class="nav-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="9"/>
+          <rect x="14" y="3" width="7" height="5"/>
+          <rect x="14" y="12" width="7" height="9"/>
+          <rect x="3" y="16" width="7" height="5"/>
+        </svg>
+      </div>
+      <span>Dashboard</span>
+    </button>
+
+    <button class="nav-item" data-tab="files">
+      <div class="nav-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <span>Files</span>
+    </button>
+
+    <button class="nav-item" data-tab="notes">
+      <div class="nav-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+      </div>
+      <span>Notes</span>
+    </button>
+
+    <button class="nav-item" data-tab="history">
+      <div class="nav-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <span>History</span>
+    </button>
+
+    <button class="nav-item" data-tab="console">
+      <div class="nav-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+        </svg>
+      </div>
+      <span>Console</span>
+    </button>
+  </nav>
+
+  <!-- MODAL: COMMIT DIALOG -->
+  <div class="modal" id="commitModal">
+    <div class="modal-backdrop" onclick="closeModals()"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Create Git Commit</h3>
+        <button class="icon-btn-close" onclick="closeModals()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="commitMessageInput">Commit Message</label>
+        <textarea id="commitMessageInput" class="textarea" rows="3" placeholder="e.g. feat: add attention paper notes and annotations"></textarea>
+        
+        <div class="commit-stage-summary">
+          <span class="subtext">All pending and untracked changes will be staged automatically.</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModals()">Cancel</button>
+        <button class="btn btn-primary" id="confirmCommitBtn">Commit Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: UPLOAD FILE/PAPER -->
+  <div class="modal" id="uploadModal">
+    <div class="modal-backdrop" onclick="closeModals()"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Upload Research Paper / File</h3>
+        <button class="icon-btn-close" onclick="closeModals()">&times;</button>
+      </div>
+      <form id="uploadForm" class="modal-body">
+        <label class="form-label">Destination Folder</label>
+        <select id="uploadFolderSelect" class="input">
+          <option value="papers" selected>papers/ (Research Papers)</option>
+          <option value="notes">notes/ (Notes & Summaries)</option>
+          <option value="">root /</option>
+        </select>
+
+        <label class="form-label" style="margin-top: 14px;">Select File</label>
+        <div class="file-dropzone" id="dropzoneBox">
+          <input type="file" id="paperFileInput" required>
+          <div class="dropzone-text">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <span id="selectedFileName">Tap to choose PDF or file</span>
+          </div>
+        </div>
+
+        <label class="checkbox-label" style="margin-top: 14px;">
+          <input type="checkbox" id="uploadAutoCommit" checked>
+          <span>Auto-commit file after upload</span>
+        </label>
+      </form>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModals()">Cancel</button>
+        <button class="btn btn-primary" id="confirmUploadBtn">Upload to Repo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: FILE VIEWER -->
+  <div class="modal" id="fileViewerModal">
+    <div class="modal-backdrop" onclick="closeModals()"></div>
+    <div class="modal-dialog modal-large">
+      <div class="modal-header">
+        <h3 id="viewerFileName">File Preview</h3>
+        <button class="icon-btn-close" onclick="closeModals()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <pre class="file-preview-pre"><code id="viewerFileContent"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModals()">Close</button>
+        <button class="btn btn-primary" id="openInEditorBtn">Open in Editor</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PIN AUTH (If Enabled) -->
+  <div class="modal" id="pinModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Authentication Required</h3>
+      </div>
+      <div class="modal-body">
+        <p class="subtext">Enter your 4-digit .gitmobile security PIN to access this repository.</p>
+        <input type="password" id="pinInput" class="input pin-input" maxlength="8" placeholder="••••">
+        <div id="pinErrorMsg" class="error-text"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary btn-block" id="submitPinBtn">Unlock Bridge</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
