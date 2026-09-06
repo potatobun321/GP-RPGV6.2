@@ -16,7 +16,7 @@ const WEB_DIR = path.resolve(__dirname, '../web');
 let config = {
   port: 3000,
   pin: '', // blank means no PIN required
-  host: '127.0.0.1'
+  host: '0.0.0.0'
 };
 
 if (fs.existsSync(CONFIG_FILE)) {
