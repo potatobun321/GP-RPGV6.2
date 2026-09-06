@@ -30,12 +30,27 @@ if "%RUNNER%"=="none" (
 
 echo [1/3] Runtime detected: %RUNNER%
 
-REM 2. Configure Git auto-upstream and non-blocking SSH
+REM 2. Ensure dependencies are installed if missing
+if not exist "%~dp0.gitmobile\node_modules" (
+  echo       Installing .gitmobile dependencies...
+  if "%RUNNER%"=="node" (
+    pushd "%~dp0.gitmobile"
+    call npm install --omit=dev --silent
+    popd
+  ) else (
+    pushd "%~dp0.gitmobile"
+    deno install
+    popd
+  )
+  echo       Dependencies installed.
+)
+
+REM 3. Configure Git auto-upstream and non-blocking SSH
 git config push.autoSetupRemote true >nul 2>nul
 git config core.sshCommand "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new" >nul 2>nul
 echo [2/3] Git settings configured.
 
-REM 3. Launch Server
+REM 4. Launch Server
 echo [3/3] Starting .gitmobile server...
 echo.
 
