@@ -7,7 +7,12 @@ const fs = require('fs');
  */
 function runGit(repoPath, args) {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd: repoPath, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const env = {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new'
+    };
+    execFile('git', args, { cwd: repoPath, env, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         return reject({
           code: error.code,
@@ -140,10 +145,24 @@ async function commitRepo(repoPath, message, files = []) {
 }
 
 /**
- * Push commits to remote
+ * Push commits to remote (automatically sets upstream on first push)
  */
 async function pushRepo(repoPath) {
-  return await runGit(repoPath, ['push']);
+  let branch = 'master';
+  try {
+    const b = await runGit(repoPath, ['branch', '--show-current']);
+    if (b.stdout) branch = b.stdout.trim();
+  } catch (_) {}
+
+  try {
+    return await runGit(repoPath, ['push']);
+  } catch (err) {
+    const errText = (err.stderr || err.message || '');
+    if (errText.includes('no upstream branch') || errText.includes('--set-upstream') || errText.includes('has no upstream')) {
+      return await runGit(repoPath, ['push', '-u', 'origin', branch]);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -176,7 +195,7 @@ async function syncWorkflow(repoPath, customMessage) {
 
   // 3. Try Push
   try {
-    const pushRes = await runGit(repoPath, ['push']);
+    const pushRes = await pushRepo(repoPath);
     logs.push(`[Push] ${pushRes.stdout || pushRes.stderr || 'Pushed successfully.'}`);
   } catch (e) {
     logs.push(`[Push Notice] ${e.stderr || e.message || 'Push skipped or remote not configured.'}`);
