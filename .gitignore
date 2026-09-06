@@ -1,0 +1,11 @@
+# Dependencies
+.gitmobile/node_modules/
+node_modules/
+
+# Local configurations & secrets
+.gitmobile/config.json
+.env
+
+# OS Files
+.DS_Store
+Thumbs.db
