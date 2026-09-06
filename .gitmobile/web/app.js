@@ -113,7 +113,11 @@ async function apiRequest(endpoint, options = {}) {
       promptPinAuth();
       throw new Error('PIN Required');
     }
-    return await res.json();
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || 'Command failed');
+    }
+    return data;
   } catch (err) {
     logToConsole(`Error (${endpoint}): ${err.message}`, 'error');
     throw err;
